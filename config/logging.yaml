@@ -1,0 +1,6 @@
+# Loguru / logging configuration reference.
+# See maira/infrastructure/logging/loguru_setup.py for runtime wiring.
+
+level: INFO
+rotation: "10 MB"
+retention: "7 days"

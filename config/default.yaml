@@ -1,0 +1,85 @@
+# Maira default configuration.
+# Copied or merged into the user data directory on first launch.
+# See maira/app/settings.py for schema and loading logic.
+
+app:
+  name: Ultron
+  offline_first: true
+
+paths:
+  data_dir: data
+  plugins_dir: plugins_external
+
+ollama:
+  host: "http://127.0.0.1:11434"
+  model: "llama3.2:latest"
+  timeout_seconds: 120
+  keep_alive: "30m"
+
+memory:
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  chroma_path: "data/chroma"
+  recall_top_k: 5
+  # Keep encode/store off the chat critical path.
+  background_encoding: true
+  # keyword = fast (default); semantic = encode query before LLM (slower)
+  recall_mode: keyword
+
+context:
+  max_memories: 5
+  max_context_chars: 2000
+  show_debug: false
+  # Max conversation messages (excluding system) sent to Ollama each turn.
+  # Documented: keeps prompts bounded while Memory injects relevant facts separately.
+  history_messages: 24
+  log_latency: true
+
+voice:
+  enabled: true
+  # Multilingual Whisper (Hindi + English dictation). base.en cannot do Hindi.
+  whisper_model: "base"
+  whisper_device: "cpu"
+  whisper_compute_type: "int8"
+  whisper_beam_size: 5
+  sample_rate: 16000
+  stt_provider: faster_whisper
+  tts_provider: kokoro
+  # Shipped PC default TTS: Kokoro (offline, no usage fees)
+  tts_engine: "kokoro"
+  tts_voice: "af_heart"
+  tts_lang: "a"
+  allow_tts_fallback: false
+  # Empty = auto-detect language for Hinglish / Hindi typing via mic.
+  language: ""
+  # Slightly longer silence so words are not cut off mid-phrase.
+  silence_seconds: 0.9
+  # Short spoken replies = faster first audio; 64 leaves room for Hinglish.
+  max_reply_tokens: 64
+  auto_speak: true
+  interrupt_on_speech: true
+  max_model_download_gb: 1
+  chunk_min_chars: 16
+  chunk_max_chars: 90
+  # Pre-load STT/TTS and run a tiny discarded synth so first reply is warm.
+  warmup: true
+  stt:
+    provider: faster_whisper
+    model: base
+    device: cpu
+    beam_size: 5
+  tts:
+    provider: kokoro
+    voice: af_heart
+    speed: 1.0
+  behavior:
+    auto_speak: true
+    interrupt_on_speech: true
+    silence_timeout: 0.9
+  limits:
+    max_model_download_gb: 1
+
+# OS control outside Maira (open apps/URLs, type, click, hotkeys).
+# Input (type/click) needs: pip install -e ".[desktop]"
+desktop:
+  enabled: true
+  allow_input: true
