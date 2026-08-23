@@ -1,0 +1,68 @@
+[project]
+name = "ultron"
+version = "0.1.0"
+description = "Ultron — offline-first Personal AI Operating System"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "PySide6>=6.6.0",
+    "PyYAML>=6.0",
+    "loguru>=0.7.0",
+    "httpx>=0.27.0",
+    "Pillow>=10.0.0",
+    "pymupdf>=1.24.0",
+    "winocr>=0.0.15",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.4",
+]
+memory = [
+    "chromadb>=0.5.0",
+    "sentence-transformers>=3.0.0",
+]
+voice = [
+    "sounddevice>=0.5.0",
+    "numpy>=1.26.0",
+    "faster-whisper>=1.0.0",
+    "kokoro>=0.9.0",
+    "soundfile>=0.12.0",
+    "pyttsx3>=2.90",  # emergency only if voice.allow_tts_fallback=true
+]
+voice-lab = [
+    "numpy>=1.26.0",
+    "soundfile>=0.12.0",
+    "kokoro>=0.9.0",
+    # Indic Parler-TTS (optional):
+    #   pip install git+https://github.com/huggingface/parler-tts.git
+    # Veena (optional, heavy / GPU recommended):
+    #   pip install snac accelerate bitsandbytes
+    # Chatterbox (optional, heavy):
+    #   pip install chatterbox-tts
+]
+desktop = [
+    "pyautogui>=0.9.54",
+    "Pillow>=10.0.0",
+]
+
+[project.scripts]
+ultron = "maira.__main__:main"
+maira = "maira.__main__:main"
+maira-ui = "maira.ui.prototype.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["maira*", "voice_lab*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: tests requiring external services or optional heavy deps",
+]

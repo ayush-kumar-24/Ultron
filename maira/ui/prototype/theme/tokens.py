@@ -1,0 +1,73 @@
+"""Centralized design tokens for the Maira UI prototype."""
+
+from __future__ import annotations
+
+# Backgrounds
+BG_PRIMARY = "#050505"
+BG_SECONDARY = "#080808"
+BG_SURFACE = "#0D0D0D"
+BG_ELEVATED = "#111111"
+BG_HOVER = "#161616"
+BG_INPUT = "#0A0A0A"
+
+# Borders
+BORDER = "rgba(255, 255, 255, 0.07)"
+BORDER_HOVER = "rgba(255, 255, 255, 0.13)"
+BORDER_ACTIVE = "rgba(255, 255, 255, 0.18)"
+BORDER_FOCUS = "rgba(255, 255, 255, 0.22)"
+
+# Text — soft graphite whites (premium, low glare)
+TEXT_PRIMARY = "#C4C4CC"
+TEXT_SECONDARY = "#8E8E99"
+TEXT_MUTED = "#5C5C66"
+TEXT_DIM = "#3F3F46"
+TEXT_HEADING = "#D0D0D8"
+
+# Accent — soft white + subtle lavender (sparingly)
+ACCENT_LIGHT = "#D8D8E0"
+ACCENT_SOFT = "#B8B8C4"
+CTA_FILL = "#D4D4DC"
+CTA_FILL_HOVER = "#E0E0E8"
+GLOW_LAVENDER = "#A78BFA"
+GLOW_LAVENDER_DIM = "#7C6AAF"
+STATUS_READY = "#4ADE80"
+STATUS_OFFLINE = "#F87171"
+STATUS_WARN = "#FBBF24"
+
+# Layout
+SIDEBAR_COLLAPSED = 68
+SIDEBAR_EXPANDED = 220
+RADIUS_SM = 8
+RADIUS_MD = 12
+RADIUS_LG = 20
+RADIUS_XL = 24
+RADIUS_PILL = 999
+
+# Spacing
+SPACE_XS = 4
+SPACE_SM = 8
+SPACE_MD = 16
+SPACE_LG = 24
+SPACE_XL = 32
+SPACE_2XL = 48
+
+# Typography
+FONT_FAMILY = '"Segoe UI", "Inter", "SF Pro Display", system-ui, sans-serif'
+FONT_SIZE_XS = 11
+FONT_SIZE_SM = 12
+FONT_SIZE_MD = 14
+FONT_SIZE_LG = 16
+FONT_SIZE_XL = 22
+FONT_SIZE_2XL = 28
+FONT_SIZE_3XL = 36
+
+# Motion
+DURATION_FAST = 150
+DURATION_NORMAL = 200
+DURATION_SLOW = 250
+DURATION_GLOW = 1800
+
+# Command box
+COMMAND_WIDTH = 680
+COMMAND_HEIGHT = 136
+COMMAND_CHAT_HEIGHT = 96

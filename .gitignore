@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+
+# Maira runtime data (offline stores, caches, models)
+data/
+*.db
+*.sqlite3
+.chroma/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# User plugins (installed at runtime)
+plugins_external/
+
+# Secrets
+.env
+*.pem
+voice_lab/.env
+
+# Voice lab generated audio (keep results structure)
+voice_lab/output/*.wav
+voice_lab/output/results.json
