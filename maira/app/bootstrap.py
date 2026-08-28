@@ -1,5 +1,7 @@
 """Application bootstrap sequence."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
 import threading
@@ -35,6 +37,7 @@ from maira.modules.automation.service import AutomationService
 from maira.modules.brain.conversation import ConversationSession
 from maira.modules.brain.service import BrainService
 from maira.modules.desktop_controller.service import DesktopControllerService
+from maira.modules.vision.service import VisionService
 from maira.modules.memory.policy import MemoryPolicy
 from maira.modules.memory.service import MemoryService
 from maira.modules.memory.worker import MemoryWorker
@@ -46,7 +49,15 @@ from maira.modules.voice.tts import TextToSpeech
 from maira.modules.voice.tts.registry import create_tts, ensure_default_tts_providers
 from maira.shared.utils.paths import database_path, project_root
 from maira.ui.application import create_qt_application
+from maira.ui.presence.runtime import PresenceRuntime
 from maira.ui.prototype.shell.main_window import PrototypeWindow as MainWindow
+
+
+@dataclass
+class Runtime:
+  container: Container
+  lifecycle: Lifecycle
+  settings: Settings
 
 
 @dataclass
@@ -55,6 +66,7 @@ class AppContext:
   container: Container
   lifecycle: Lifecycle
   window: MainWindow
+  presence: PresenceRuntime | None
 
 
 def _resolve_chroma_path(settings: Settings) -> Path:
@@ -84,6 +96,20 @@ def _build_memory_service(settings: Settings, memory_repository: MemoryRepositor
   return MemoryService(memory_repository, encoder=encoder, vector_store=vector_store)
 
 
+def _build_vision_service(settings: Settings, event_bus) -> VisionService:
+  """Screen capture + OCR. Adapters load lazily, so missing deps are not fatal."""
+  from maira.infrastructure.screen.mss_capture import MssScreenCapture
+  from maira.infrastructure.screen.winocr_reader import WinOcrScreenReader
+
+  return VisionService(
+    MssScreenCapture(),
+    WinOcrScreenReader(lang=settings.vision.ocr_lang),
+    enabled=settings.vision.enabled,
+    bus=event_bus,
+    max_text_chars=settings.vision.max_text_chars,
+  )
+
+
 def _register_services(container: Container, settings: Settings, lifecycle: Lifecycle) -> None:
   event_bus = EventBus()
   container.register_instance("event_bus", event_bus)
@@ -110,6 +136,7 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
     allow_input=settings.desktop.allow_input,
   )
   container.register_instance("desktop", desktop)
+  container.register_instance("vision", _build_vision_service(settings, event_bus))
   memory = _build_memory_service(settings, memory_repository)
   container.register_instance("memory", memory)
 
@@ -151,6 +178,7 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
       recall_mode=settings.memory.recall_mode,
       automation=container.resolve("automation"),
       desktop=container.resolve("desktop"),
+      vision=container.resolve("vision"),
     )
 
   container.register("brain", brain_factory)
@@ -244,20 +272,72 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
   container.register("voice", voice_factory)
 
 
-def bootstrap() -> AppContext:
+def build_runtime() -> Runtime:
+  """Wire services. No Qt, no HTTP — both entry points call this."""
   setup_logging()
-  logger.info("Starting Maira")
-
   settings = load_settings()
   container = Container()
   lifecycle = Lifecycle()
-
   _register_services(container, settings, lifecycle)
+  return Runtime(container=container, lifecycle=lifecycle, settings=settings)
 
-  qt_app = create_qt_application(settings)
-  window = MainWindow(container=container, skip_onboarding=True)
-  window.show()
 
-  lifecycle.on_shutdown(lambda: logger.info("Maira shutdown complete"))
+def start_api(runtime: Runtime, *, blocking: bool = False) -> None:
+  """Serve the HTTP API on the shared container. Daemon thread, or block for headless."""
+  if not runtime.settings.api.enabled:
+    logger.info("HTTP API disabled")
+    return
+  from maira.api.overlay import OverlayStore
+  from maira.api.server import create_app, serve_api, start_api_thread
+  from maira.shared.utils.paths import data_dir
 
-  return AppContext(qt_app=qt_app, container=container, lifecycle=lifecycle, window=window)
+  if runtime.container.try_resolve("overlay") is None:
+    runtime.container.register_instance("overlay", OverlayStore(data_dir() / "user_profile.json"))
+
+  app = create_app(runtime.container)
+  if blocking:
+    serve_api(app, runtime.settings, runtime.lifecycle)
+    return
+  start_api_thread(app, runtime.settings, runtime.lifecycle)
+
+
+def run_headless() -> None:
+  """Boot the container and serve the API without Qt."""
+  runtime = build_runtime()
+  logger.info("Starting Ultron API (headless)")
+  if not runtime.settings.api.enabled:
+    logger.error("api.enabled is false — nothing to serve")
+    raise SystemExit(1)
+  start_api(runtime, blocking=True)
+
+
+def bootstrap() -> AppContext:
+  runtime = build_runtime()
+  logger.info("Starting Maira")
+  start_api(runtime, blocking=False)
+
+  qt_app = create_qt_application(runtime.settings)
+  window = MainWindow(container=runtime.container, skip_onboarding=True)
+
+  presence: PresenceRuntime | None = None
+  if runtime.settings.presence.enabled:
+    presence = PresenceRuntime(
+      window,
+      runtime.container.resolve("event_bus"),
+      runtime.settings.presence,
+      qt_app,
+    )
+    presence.start()
+    runtime.lifecycle.on_shutdown(presence.shutdown)
+  else:
+    window.show()
+
+  runtime.lifecycle.on_shutdown(lambda: logger.info("Maira shutdown complete"))
+
+  return AppContext(
+    qt_app=qt_app,
+    container=runtime.container,
+    lifecycle=runtime.lifecycle,
+    window=window,
+    presence=presence,
+  )

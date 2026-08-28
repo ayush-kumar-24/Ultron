@@ -33,6 +33,7 @@ class PrototypeWindow(QMainWindow):
     super().__init__()
     self.store = store or MockStore()
     self._container = container
+    self.hide_on_close = False
     self.setWindowTitle("Ultron")
     self.resize(1280, 800)
     self.setMinimumSize(1100, 700)
@@ -354,6 +355,13 @@ class PrototypeWindow(QMainWindow):
       return
     if cmd_id in routes:
       self.navigate(routes[cmd_id])
+
+  def closeEvent(self, event) -> None:  # noqa: N802
+    if self.hide_on_close:
+      event.ignore()
+      self.hide()
+      return
+    super().closeEvent(event)
 
   def _search_result(self, category: str, _text: str) -> None:
     route = {

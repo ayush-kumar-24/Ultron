@@ -28,8 +28,20 @@ class MemoryService(Memory):
     category: MemoryCategory,
     title: str,
     body: str,
+    source: str = "",
+    confidence: float = 0.9,
+    importance: str = "medium",
+    pinned: bool = False,
   ) -> MemoryEntry:
-    entry = self._store.store(category=category, title=title, body=body)
+    entry = self._store.store(
+      category=category,
+      title=title,
+      body=body,
+      source=source,
+      confidence=confidence,
+      importance=importance,
+      pinned=pinned,
+    )
     self._retrieval.index(entry)
     return entry
 
@@ -74,6 +86,12 @@ class MemoryService(Memory):
     body: str,
   ) -> MemoryEntry | None:
     entry = self._store.update(memory_id, category=category, title=title, body=body)
+    if entry is not None:
+      self._retrieval.index(entry)
+    return entry
+
+  def patch(self, memory_id: str, **fields) -> MemoryEntry | None:
+    entry = self._store.patch(memory_id, **fields)
     if entry is not None:
       self._retrieval.index(entry)
     return entry

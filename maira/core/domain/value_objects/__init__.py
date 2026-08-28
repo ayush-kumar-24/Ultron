@@ -27,6 +27,13 @@ class MemoryCategory(str, Enum):
   NOTE = "note"
   IDEA = "idea"
   PROJECT = "project"
+  PERSONAL = "personal"
+  PREFERENCES = "preferences"
+  PROJECTS = "projects"
+  PEOPLE = "people"
+  WORK = "work"
+  CONVERSATIONS = "conversations"
+  LEARNED = "learned"
 
 
 class AutomationStatus(str, Enum):

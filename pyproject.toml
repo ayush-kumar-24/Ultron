@@ -19,6 +19,12 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-qt>=4.4",
+    "fastapi>=0.115.0",
+    "httpx>=0.27.0",
+]
+api = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
 ]
 memory = [
     "chromadb>=0.5.0",
@@ -46,6 +52,11 @@ voice-lab = [
 desktop = [
     "pyautogui>=0.9.54",
     "Pillow>=10.0.0",
+]
+screen = [
+    "mss>=9.0.1",
+    "Pillow>=10.0.0",
+    "winocr>=0.0.15",  # Windows only; uses the built-in OS OCR engine
 ]
 
 [project.scripts]

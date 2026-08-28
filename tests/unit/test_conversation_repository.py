@@ -31,9 +31,9 @@ def test_migrations_are_idempotent(tmp_path: Path) -> None:
   db = SqliteStorage(tmp_path / "mig.db")
   first = apply_migrations(db)
   second = apply_migrations(db)
-  assert first == [1, 2, 3]
+  assert first == [1, 2, 3, 4, 5]
   assert second == []
-  assert current_version(db) == 3
+  assert current_version(db) == 5
   db.close()
 
 
@@ -74,3 +74,16 @@ def test_update_title_and_touch(repo: ConversationRepository) -> None:
   assert updated is not None
   assert updated.title == "My topic"
   assert updated.updated_at >= conversation.updated_at
+
+
+def test_pin_and_delete_conversation(repo: ConversationRepository) -> None:
+  conversation = repo.create_conversation("Alpha", project_id="p_1")
+  repo.add_message(conversation.id, Message(role=MessageRole.USER, content="hi"))
+  patched = repo.update_conversation(conversation.id, pinned=True)
+  assert patched is not None
+  assert patched.pinned is True
+  assert patched.project_id == "p_1"
+  assert repo.delete_conversation(conversation.id) is True
+  assert repo.get_conversation(conversation.id) is None
+  assert repo.get_messages(conversation.id) == []
+  assert repo.delete_conversation(conversation.id) is False

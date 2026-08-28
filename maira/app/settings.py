@@ -1,5 +1,7 @@
 """Typed application settings."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 from maira.infrastructure.config.yaml_loader import deep_merge, load_yaml
@@ -76,6 +78,30 @@ class DesktopSettings:
 
 
 @dataclass(frozen=True)
+class VisionSettings:
+  enabled: bool
+  ocr_lang: str
+  max_text_chars: int
+
+
+@dataclass(frozen=True)
+class PresenceSettings:
+  enabled: bool
+  start_hidden: bool
+  autostart: bool
+  orb_visible: bool
+  hotkey: str
+
+
+@dataclass(frozen=True)
+class ApiSettings:
+  enabled: bool
+  host: str
+  port: int
+  cors_origins: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Settings:
   app: AppSettings
   paths: PathSettings
@@ -84,6 +110,9 @@ class Settings:
   context: ContextSettings
   voice: VoiceSettings
   desktop: DesktopSettings
+  vision: VisionSettings
+  presence: PresenceSettings
+  api: ApiSettings
 
   @property
   def app_name(self) -> str:
@@ -102,6 +131,9 @@ def load_settings() -> Settings:
   context_raw = merged.get("context", {})
   voice_raw = merged.get("voice", {})
   desktop_raw = merged.get("desktop", {})
+  vision_raw = merged.get("vision", {})
+  presence_raw = merged.get("presence", {})
+  api_raw = merged.get("api", {})
   stt_raw = voice_raw.get("stt", {}) if isinstance(voice_raw.get("stt"), dict) else {}
   tts_raw = voice_raw.get("tts", {}) if isinstance(voice_raw.get("tts"), dict) else {}
   behavior_raw = voice_raw.get("behavior", {}) if isinstance(voice_raw.get("behavior"), dict) else {}
@@ -185,5 +217,34 @@ def load_settings() -> Settings:
     desktop=DesktopSettings(
       enabled=bool(desktop_raw.get("enabled", True)),
       allow_input=bool(desktop_raw.get("allow_input", True)),
+    ),
+    vision=VisionSettings(
+      enabled=bool(vision_raw.get("enabled", True)),
+      ocr_lang=str(vision_raw.get("ocr_lang", "en")),
+      max_text_chars=int(vision_raw.get("max_text_chars", 4000)),
+    ),
+    presence=PresenceSettings(
+      enabled=bool(presence_raw.get("enabled", True)),
+      start_hidden=bool(presence_raw.get("start_hidden", True)),
+      autostart=bool(presence_raw.get("autostart", True)),
+      orb_visible=bool(presence_raw.get("orb_visible", True)),
+      hotkey=str(presence_raw.get("hotkey", "Ctrl+Alt+U")),
+    ),
+    api=ApiSettings(
+      enabled=bool(api_raw.get("enabled", True)),
+      host=str(api_raw.get("host", "127.0.0.1")),
+      port=int(api_raw.get("port", 8000)),
+      cors_origins=tuple(
+        str(origin)
+        for origin in api_raw.get(
+          "cors_origins",
+          [
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+            "http://127.0.0.1:8000",
+            "http://localhost:8000",
+          ],
+        )
+      ),
     ),
   )

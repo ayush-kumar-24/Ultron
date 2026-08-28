@@ -35,8 +35,15 @@ def test_load_settings_defaults() -> None:
   assert settings.voice.warmup is True
   assert settings.desktop.enabled is True
   assert settings.desktop.allow_input is True
+  assert settings.vision.enabled is True
+  assert settings.vision.ocr_lang == "en"
+  assert settings.vision.max_text_chars == 4000
   assert settings.memory.background_encoding is True
   assert settings.memory.recall_mode == "keyword"
+  assert settings.api.enabled is True
+  assert settings.api.host == "127.0.0.1"
+  assert settings.api.port == 8000
+  assert "http://127.0.0.1:5173" in settings.api.cors_origins
 
 
 def test_deep_merge_nested() -> None:

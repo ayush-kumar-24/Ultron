@@ -1,5 +1,7 @@
 """Domain entities."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -36,6 +38,8 @@ class Conversation:
   title: str
   created_at: datetime
   updated_at: datetime
+  pinned: bool = False
+  project_id: str | None = None
 
 
 @dataclass
@@ -66,6 +70,12 @@ class MemoryEntry:
   body: str
   created_at: datetime
   updated_at: datetime
+  source: str = ""
+  confidence: float = 0.9
+  importance: str = "medium"
+  pinned: bool = False
+  last_accessed: datetime | None = None
+  access_count: int = 0
 
 
 @dataclass

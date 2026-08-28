@@ -49,32 +49,44 @@ class ConversationRepository:
   def transaction(self):
     return self._storage.transaction()
 
-  def create_conversation(self, title: str = "New chat") -> Conversation:
+  _CONVERSATION_COLUMNS = "id, title, created_at, updated_at, pinned, project_id"
+
+  def create_conversation(
+    self,
+    title: str = "New chat",
+    *,
+    project_id: str | None = None,
+    pinned: bool = False,
+  ) -> Conversation:
     now = _utc_now()
     conversation = Conversation(
       id=str(uuid.uuid4()),
       title=title,
       created_at=now,
       updated_at=now,
+      pinned=pinned,
+      project_id=project_id,
     )
     self._storage.execute(
       """
-      INSERT INTO conversations (id, title, created_at, updated_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO conversations (id, title, created_at, updated_at, pinned, project_id)
+      VALUES (?, ?, ?, ?, ?, ?)
       """,
       (
         conversation.id,
         conversation.title,
         _to_iso(conversation.created_at),
         _to_iso(conversation.updated_at),
+        1 if conversation.pinned else 0,
+        conversation.project_id,
       ),
     )
     return conversation
 
   def get_conversation(self, conversation_id: str) -> Conversation | None:
     row = self._storage.fetchone(
-      """
-      SELECT id, title, created_at, updated_at
+      f"""
+      SELECT {self._CONVERSATION_COLUMNS}
       FROM conversations
       WHERE id = ?
       """,
@@ -84,8 +96,8 @@ class ConversationRepository:
 
   def get_latest_conversation(self) -> Conversation | None:
     row = self._storage.fetchone(
-      """
-      SELECT id, title, created_at, updated_at
+      f"""
+      SELECT {self._CONVERSATION_COLUMNS}
       FROM conversations
       ORDER BY updated_at DESC, rowid DESC
       LIMIT 1
@@ -95,10 +107,10 @@ class ConversationRepository:
 
   def list_conversations(self) -> list[Conversation]:
     rows = self._storage.fetchall(
-      """
-      SELECT id, title, created_at, updated_at
+      f"""
+      SELECT {self._CONVERSATION_COLUMNS}
       FROM conversations
-      ORDER BY updated_at DESC, rowid DESC
+      ORDER BY pinned DESC, updated_at DESC, rowid DESC
       """
     )
     return [self._row_to_conversation(row) for row in rows]
@@ -113,6 +125,48 @@ class ConversationRepository:
       """,
       (title, _to_iso(now), conversation_id),
     )
+
+  def update_conversation(
+    self,
+    conversation_id: str,
+    *,
+    title: str | None = None,
+    pinned: bool | None = None,
+    project_id: str | None = None,
+    clear_project: bool = False,
+  ) -> Conversation | None:
+    current = self.get_conversation(conversation_id)
+    if current is None:
+      return None
+    next_title = title if title is not None else current.title
+    next_pinned = current.pinned if pinned is None else pinned
+    next_project = current.project_id
+    if clear_project:
+      next_project = None
+    elif project_id is not None:
+      next_project = project_id
+    self._storage.execute(
+      """
+      UPDATE conversations
+      SET title = ?, pinned = ?, project_id = ?, updated_at = ?
+      WHERE id = ?
+      """,
+      (
+        next_title,
+        1 if next_pinned else 0,
+        next_project,
+        _to_iso(_utc_now()),
+        conversation_id,
+      ),
+    )
+    return self.get_conversation(conversation_id)
+
+  def delete_conversation(self, conversation_id: str) -> bool:
+    existing = self.get_conversation(conversation_id)
+    if existing is None:
+      return False
+    self._storage.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+    return True
 
   def touch(self, conversation_id: str) -> None:
     self._storage.execute(
@@ -167,24 +221,40 @@ class ConversationRepository:
       """,
       (conversation_id,),
     )
-    return [
-      Message(
-        id=str(row[0]),
-        conversation_id=str(row[1]),
-        role=MessageRole(str(row[2])),
-        content=str(row[3]),
-        timestamp=_from_iso(str(row[4])),
-      )
-      for row in rows
-    ]
+    return [self._row_to_message(row) for row in rows]
+
+  def get_message(self, message_id: str) -> Message | None:
+    row = self._storage.fetchone(
+      """
+      SELECT id, conversation_id, role, content, created_at
+      FROM messages
+      WHERE id = ?
+      """,
+      (message_id,),
+    )
+    return self._row_to_message(row) if row else None
+
+  @staticmethod
+  def _row_to_message(row: tuple) -> Message:
+    return Message(
+      id=str(row[0]),
+      conversation_id=str(row[1]),
+      role=MessageRole(str(row[2])),
+      content=str(row[3]),
+      timestamp=_from_iso(str(row[4])),
+    )
 
   @staticmethod
   def _row_to_conversation(row: tuple) -> Conversation:
+    pinned = bool(row[4]) if len(row) > 4 else False
+    project_id = str(row[5]) if len(row) > 5 and row[5] else None
     return Conversation(
       id=str(row[0]),
       title=str(row[1]),
       created_at=_from_iso(str(row[2])),
       updated_at=_from_iso(str(row[3])),
+      pinned=pinned,
+      project_id=project_id,
     )
 
 
@@ -378,7 +448,22 @@ class MemoryRepository:
   def __init__(self, storage: Storage) -> None:
     self._storage = storage
 
-  def create(self, *, category: MemoryCategory, title: str, body: str) -> MemoryEntry:
+  _COLUMNS = (
+    "id, category, title, body, created_at, updated_at, "
+    "source, confidence, importance, pinned, last_accessed, access_count"
+  )
+
+  def create(
+    self,
+    *,
+    category: MemoryCategory,
+    title: str,
+    body: str,
+    source: str = "",
+    confidence: float = 0.9,
+    importance: str = "medium",
+    pinned: bool = False,
+  ) -> MemoryEntry:
     now = _utc_now()
     entry = MemoryEntry(
       id=str(uuid.uuid4()),
@@ -387,11 +472,17 @@ class MemoryRepository:
       body=body.strip(),
       created_at=now,
       updated_at=now,
+      source=source,
+      confidence=confidence,
+      importance=importance,
+      pinned=pinned,
+      last_accessed=now,
+      access_count=0,
     )
     self._storage.execute(
-      """
-      INSERT INTO memories (id, category, title, body, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      f"""
+      INSERT INTO memories ({self._COLUMNS})
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       """,
       (
         entry.id,
@@ -400,14 +491,20 @@ class MemoryRepository:
         entry.body,
         _to_iso(entry.created_at),
         _to_iso(entry.updated_at),
+        entry.source,
+        entry.confidence,
+        entry.importance,
+        1 if entry.pinned else 0,
+        _to_iso(entry.last_accessed) if entry.last_accessed else None,
+        entry.access_count,
       ),
     )
     return entry
 
   def get(self, memory_id: str) -> MemoryEntry | None:
     row = self._storage.fetchone(
-      """
-      SELECT id, category, title, body, created_at, updated_at
+      f"""
+      SELECT {self._COLUMNS}
       FROM memories
       WHERE id = ?
       """,
@@ -418,19 +515,19 @@ class MemoryRepository:
   def list_memories(self, category: MemoryCategory | None = None) -> list[MemoryEntry]:
     if category is None:
       rows = self._storage.fetchall(
-        """
-        SELECT id, category, title, body, created_at, updated_at
+        f"""
+        SELECT {self._COLUMNS}
         FROM memories
-        ORDER BY updated_at DESC
+        ORDER BY pinned DESC, updated_at DESC
         """
       )
     else:
       rows = self._storage.fetchall(
-        """
-        SELECT id, category, title, body, created_at, updated_at
+        f"""
+        SELECT {self._COLUMNS}
         FROM memories
         WHERE category = ?
-        ORDER BY updated_at DESC
+        ORDER BY pinned DESC, updated_at DESC
         """,
         (category.value,),
       )
@@ -449,23 +546,23 @@ class MemoryRepository:
     like = f"%{cleaned}%"
     if category is None:
       rows = self._storage.fetchall(
-        """
-        SELECT id, category, title, body, created_at, updated_at
+        f"""
+        SELECT {self._COLUMNS}
         FROM memories
-        WHERE title LIKE ? OR body LIKE ?
-        ORDER BY updated_at DESC
+        WHERE title LIKE ? OR body LIKE ? OR source LIKE ?
+        ORDER BY pinned DESC, updated_at DESC
         """,
-        (like, like),
+        (like, like, like),
       )
     else:
       rows = self._storage.fetchall(
-        """
-        SELECT id, category, title, body, created_at, updated_at
+        f"""
+        SELECT {self._COLUMNS}
         FROM memories
-        WHERE category = ? AND (title LIKE ? OR body LIKE ?)
-        ORDER BY updated_at DESC
+        WHERE category = ? AND (title LIKE ? OR body LIKE ? OR source LIKE ?)
+        ORDER BY pinned DESC, updated_at DESC
         """,
-        (category.value, like, like),
+        (category.value, like, like, like),
       )
     return [self._row_to_memory(row) for row in rows]
 
@@ -477,17 +574,52 @@ class MemoryRepository:
     title: str,
     body: str,
   ) -> MemoryEntry | None:
+    current = self.get(memory_id)
+    if current is None:
+      return None
+    return self.patch(
+      memory_id,
+      category=category,
+      title=title,
+      body=body,
+    )
+
+  def patch(self, memory_id: str, **fields) -> MemoryEntry | None:
+    current = self.get(memory_id)
+    if current is None:
+      return None
+    category = fields["category"] if "category" in fields else current.category
+    title = fields["title"] if "title" in fields else current.title
+    body = fields["body"] if "body" in fields else current.body
+    source = fields["source"] if "source" in fields else current.source
+    confidence = fields["confidence"] if "confidence" in fields else current.confidence
+    importance = fields["importance"] if "importance" in fields else current.importance
+    pinned = fields["pinned"] if "pinned" in fields else current.pinned
+    last_accessed = (
+      fields["last_accessed"] if "last_accessed" in fields else current.last_accessed
+    )
+    access_count = (
+      fields["access_count"] if "access_count" in fields else current.access_count
+    )
+    now = _utc_now()
     self._storage.execute(
       """
       UPDATE memories
-      SET category = ?, title = ?, body = ?, updated_at = ?
+      SET category = ?, title = ?, body = ?, source = ?, confidence = ?,
+          importance = ?, pinned = ?, last_accessed = ?, access_count = ?, updated_at = ?
       WHERE id = ?
       """,
       (
-        category.value,
-        title.strip() or "Untitled",
-        body.strip(),
-        _to_iso(_utc_now()),
+        category.value if isinstance(category, MemoryCategory) else str(category),
+        (title or "").strip() or "Untitled",
+        (body or "").strip(),
+        source or "",
+        float(confidence),
+        importance or "medium",
+        1 if pinned else 0,
+        _to_iso(last_accessed) if last_accessed else None,
+        int(access_count),
+        _to_iso(now),
         memory_id,
       ),
     )
@@ -498,6 +630,7 @@ class MemoryRepository:
 
   @staticmethod
   def _row_to_memory(row: tuple) -> MemoryEntry:
+    last_accessed_raw = row[10] if len(row) > 10 else None
     return MemoryEntry(
       id=str(row[0]),
       category=MemoryCategory(str(row[1])),
@@ -505,6 +638,12 @@ class MemoryRepository:
       body=str(row[3]),
       created_at=_from_iso(str(row[4])),
       updated_at=_from_iso(str(row[5])),
+      source=str(row[6]) if len(row) > 6 else "",
+      confidence=float(row[7]) if len(row) > 7 and row[7] is not None else 0.9,
+      importance=str(row[8]) if len(row) > 8 and row[8] else "medium",
+      pinned=bool(row[9]) if len(row) > 9 else False,
+      last_accessed=_from_iso(str(last_accessed_raw)) if last_accessed_raw else None,
+      access_count=int(row[11]) if len(row) > 11 and row[11] is not None else 0,
     )
 
 
