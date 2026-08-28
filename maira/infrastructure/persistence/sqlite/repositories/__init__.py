@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 
 from maira.core.domain.entities import (
+  AutomationRun,
+  CalendarEvent,
+  Notification,
   AutomationJob,
   Conversation,
   MemoryEntry,
@@ -268,6 +272,11 @@ class TaskRepository:
     *,
     priority: Priority = Priority.MEDIUM,
     due_at: datetime | None = None,
+    description: str = "",
+    project_id: str | None = None,
+    tags: list[str] | None = None,
+    estimate: int = 30,
+    recurrence: str | None = None,
   ) -> Task:
     now = _utc_now()
     task = Task(
@@ -278,11 +287,20 @@ class TaskRepository:
       due_at=due_at,
       created_at=now,
       updated_at=now,
+      description=description,
+      project_id=project_id,
+      tags=list(tags or []),
+      estimate=estimate,
+      recurrence=recurrence,
+      stage="todo",
     )
     self._storage.execute(
       """
-      INSERT INTO tasks (id, title, status, priority, due_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (
+        id, title, status, priority, due_at, created_at, updated_at,
+        description, project_id, tags, estimate, recurrence, completed_at, stage
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       """,
       (
         task.id,
@@ -292,14 +310,81 @@ class TaskRepository:
         _to_iso(due_at) if due_at else None,
         _to_iso(task.created_at),
         _to_iso(task.updated_at),
+        task.description,
+        task.project_id,
+        json.dumps(task.tags),
+        task.estimate,
+        task.recurrence,
+        None,
+        task.stage,
       ),
     )
     return task
 
+  def update_task(
+    self,
+    task_id: str,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+    priority: Priority | None = None,
+    stage: str | None = None,
+    due_at: datetime | None = None,
+    clear_due: bool = False,
+    project_id: str | None = None,
+    tags: list[str] | None = None,
+    estimate: int | None = None,
+  ) -> Task | None:
+    """Patch any subset of a task. `stage` keeps the domain status in sync."""
+    existing = self.get(task_id)
+    if existing is None:
+      return None
+
+    sets: list[str] = []
+    values: list[object] = []
+
+    def assign(column: str, value: object) -> None:
+      sets.append(f"{column} = ?")
+      values.append(value)
+
+    if title is not None:
+      assign("title", title.strip())
+    if description is not None:
+      assign("description", description)
+    if priority is not None:
+      assign("priority", priority.value)
+    if project_id is not None:
+      assign("project_id", project_id)
+    if tags is not None:
+      assign("tags", json.dumps(list(tags)))
+    if estimate is not None:
+      assign("estimate", int(estimate))
+    if clear_due:
+      assign("due_at", None)
+    elif due_at is not None:
+      assign("due_at", _to_iso(due_at))
+
+    if stage is not None:
+      assign("stage", stage)
+      done = stage == "done"
+      assign("status", TaskStatus.DONE.value if done else TaskStatus.OPEN.value)
+      if done and existing.completed_at is None:
+        assign("completed_at", _to_iso(_utc_now()))
+      elif not done:
+        assign("completed_at", None)
+
+    if not sets:
+      return existing
+
+    assign("updated_at", _to_iso(_utc_now()))
+    values.append(task_id)
+    self._storage.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", tuple(values))
+    return self.get(task_id)
+
   def list_tasks(self) -> list[Task]:
     rows = self._storage.fetchall(
       """
-      SELECT id, title, status, priority, due_at, created_at, updated_at
+      SELECT id, title, status, priority, due_at, created_at, updated_at, description, project_id, tags, estimate, recurrence, completed_at, stage
       FROM tasks
       ORDER BY
         CASE status WHEN 'open' THEN 0 ELSE 1 END,
@@ -312,7 +397,7 @@ class TaskRepository:
   def get(self, task_id: str) -> Task | None:
     row = self._storage.fetchone(
       """
-      SELECT id, title, status, priority, due_at, created_at, updated_at
+      SELECT id, title, status, priority, due_at, created_at, updated_at, description, project_id, tags, estimate, recurrence, completed_at, stage
       FROM tasks
       WHERE id = ?
       """,
@@ -321,13 +406,20 @@ class TaskRepository:
     return self._row_to_task(row) if row else None
 
   def set_status(self, task_id: str, status: TaskStatus) -> Task | None:
+    done = status == TaskStatus.DONE
     self._storage.execute(
       """
       UPDATE tasks
-      SET status = ?, updated_at = ?
+      SET status = ?, stage = ?, completed_at = ?, updated_at = ?
       WHERE id = ?
       """,
-      (status.value, _to_iso(_utc_now()), task_id),
+      (
+        status.value,
+        "done" if done else "todo",
+        _to_iso(_utc_now()) if done else None,
+        _to_iso(_utc_now()),
+        task_id,
+      ),
     )
     return self.get(task_id)
 
@@ -359,6 +451,11 @@ class TaskRepository:
   @staticmethod
   def _row_to_task(row: tuple) -> Task:
     due_raw = row[4]
+    try:
+      tags = json.loads(str(row[9] or "[]"))
+    except json.JSONDecodeError:
+      tags = []
+    completed_raw = row[12]
     return Task(
       id=str(row[0]),
       title=str(row[1]),
@@ -367,8 +464,14 @@ class TaskRepository:
       due_at=_from_iso(str(due_raw)) if due_raw else None,
       created_at=_from_iso(str(row[5])),
       updated_at=_from_iso(str(row[6])),
+      description=str(row[7] or ""),
+      project_id=str(row[8]) if row[8] else None,
+      tags=tags if isinstance(tags, list) else [],
+      estimate=int(row[10] or 30),
+      recurrence=str(row[11]) if row[11] else None,
+      completed_at=_from_iso(str(completed_raw)) if completed_raw else None,
+      stage=str(row[13] or "todo"),
     )
-
 
 class NoteRepository:
   def __init__(self, storage: Storage) -> None:
@@ -830,3 +933,271 @@ class AutomationRepository:
       created_at=_from_iso(str(row[11])),
       updated_at=_from_iso(str(row[12])),
     )
+
+
+class CalendarEventRepository:
+  """Calendar entries the web app shows — meetings, focus blocks, deadlines."""
+
+  def __init__(self, storage: Storage) -> None:
+    self._storage = storage
+
+  def create(
+    self,
+    title: str,
+    start_at: datetime,
+    end_at: datetime | None = None,
+    *,
+    type: str = "meeting",
+    project_id: str | None = None,
+    task_id: str | None = None,
+  ) -> CalendarEvent:
+    event = CalendarEvent(
+      id=str(uuid.uuid4()),
+      title=title.strip(),
+      start_at=start_at,
+      end_at=end_at or start_at,
+      type=type,
+      project_id=project_id,
+      task_id=task_id,
+      created_at=_utc_now(),
+    )
+    self._storage.execute(
+      """
+      INSERT INTO calendar_events (id, title, start_at, end_at, type, project_id, task_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      """,
+      (
+        event.id,
+        event.title,
+        _to_iso(event.start_at),
+        _to_iso(event.end_at),
+        event.type,
+        event.project_id,
+        event.task_id,
+        _to_iso(event.created_at),
+      ),
+    )
+    return event
+
+  def list_events(
+    self,
+    *,
+    start: datetime | None = None,
+    end: datetime | None = None,
+  ) -> list[CalendarEvent]:
+    clauses: list[str] = []
+    values: list[object] = []
+    if start is not None:
+      clauses.append("start_at >= ?")
+      values.append(_to_iso(start))
+    if end is not None:
+      clauses.append("start_at <= ?")
+      values.append(_to_iso(end))
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = self._storage.fetchall(
+      f"""
+      SELECT id, title, start_at, end_at, type, project_id, task_id, created_at
+      FROM calendar_events
+      {where}
+      ORDER BY start_at ASC
+      """,
+      tuple(values),
+    )
+    return [self._row_to_event(row) for row in rows]
+
+  def get(self, event_id: str) -> CalendarEvent | None:
+    row = self._storage.fetchone(
+      """
+      SELECT id, title, start_at, end_at, type, project_id, task_id, created_at
+      FROM calendar_events
+      WHERE id = ?
+      """,
+      (event_id,),
+    )
+    return self._row_to_event(row) if row else None
+
+  def delete(self, event_id: str) -> bool:
+    if self.get(event_id) is None:
+      return False
+    self._storage.execute("DELETE FROM calendar_events WHERE id = ?", (event_id,))
+    return True
+
+  @staticmethod
+  def _row_to_event(row: tuple) -> CalendarEvent:
+    return CalendarEvent(
+      id=str(row[0]),
+      title=str(row[1]),
+      start_at=_from_iso(str(row[2])),
+      end_at=_from_iso(str(row[3])),
+      type=str(row[4] or "meeting"),
+      project_id=str(row[5]) if row[5] else None,
+      task_id=str(row[6]) if row[6] else None,
+      created_at=_from_iso(str(row[7])),
+    )
+
+
+class NotificationRepository:
+  def __init__(self, storage: Storage) -> None:
+    self._storage = storage
+
+  def create(self, *, type: str, title: str, body: str = "") -> Notification:
+    notification = Notification(
+      id=str(uuid.uuid4()),
+      type=type,
+      title=title,
+      body=body,
+      created_at=_utc_now(),
+      read=False,
+    )
+    self._storage.execute(
+      """
+      INSERT INTO notifications (id, type, title, body, created_at, read)
+      VALUES (?, ?, ?, ?, ?, 0)
+      """,
+      (
+        notification.id,
+        notification.type,
+        notification.title,
+        notification.body,
+        _to_iso(notification.created_at),
+      ),
+    )
+    return notification
+
+  def list_notifications(self, *, limit: int = 100) -> list[Notification]:
+    rows = self._storage.fetchall(
+      """
+      SELECT id, type, title, body, created_at, read
+      FROM notifications
+      ORDER BY created_at DESC
+      LIMIT ?
+      """,
+      (limit,),
+    )
+    return [self._row_to_notification(row) for row in rows]
+
+  def get(self, notification_id: str) -> Notification | None:
+    row = self._storage.fetchone(
+      """
+      SELECT id, type, title, body, created_at, read
+      FROM notifications
+      WHERE id = ?
+      """,
+      (notification_id,),
+    )
+    return self._row_to_notification(row) if row else None
+
+  def set_read(self, notification_id: str, read: bool) -> Notification | None:
+    if self.get(notification_id) is None:
+      return None
+    self._storage.execute(
+      "UPDATE notifications SET read = ? WHERE id = ?",
+      (1 if read else 0, notification_id),
+    )
+    return self.get(notification_id)
+
+  def mark_all_read(self) -> int:
+    unread = self._storage.fetchone("SELECT COUNT(*) FROM notifications WHERE read = 0")
+    self._storage.execute("UPDATE notifications SET read = 1 WHERE read = 0")
+    return int(unread[0]) if unread else 0
+
+  def delete(self, notification_id: str) -> bool:
+    if self.get(notification_id) is None:
+      return False
+    self._storage.execute("DELETE FROM notifications WHERE id = ?", (notification_id,))
+    return True
+
+  def unread_count(self) -> int:
+    row = self._storage.fetchone("SELECT COUNT(*) FROM notifications WHERE read = 0")
+    return int(row[0]) if row else 0
+
+  @staticmethod
+  def _row_to_notification(row: tuple) -> Notification:
+    return Notification(
+      id=str(row[0]),
+      type=str(row[1]),
+      title=str(row[2]),
+      body=str(row[3] or ""),
+      created_at=_from_iso(str(row[4])),
+      read=bool(row[5]),
+    )
+
+
+class AutomationRunRepository:
+  """History for the automations page: what ran, when, and what it said."""
+
+  def __init__(self, storage: Storage) -> None:
+    self._storage = storage
+
+  def record(
+    self,
+    automation_id: str,
+    *,
+    status: str,
+    duration_ms: int = 0,
+    output: str = "",
+  ) -> AutomationRun:
+    run = AutomationRun(
+      id=str(uuid.uuid4()),
+      automation_id=automation_id,
+      ran_at=_utc_now(),
+      status=status,
+      duration_ms=duration_ms,
+      output=output,
+    )
+    self._storage.execute(
+      """
+      INSERT INTO automation_runs (id, automation_id, ran_at, status, duration_ms, output)
+      VALUES (?, ?, ?, ?, ?, ?)
+      """,
+      (run.id, run.automation_id, _to_iso(run.ran_at), run.status, run.duration_ms, run.output),
+    )
+    column = "failure_count" if status == "failed" else "run_count"
+    self._storage.execute(
+      f"UPDATE automations SET {column} = {column} + 1 WHERE id = ?",
+      (automation_id,),
+    )
+    return run
+
+  def list_runs(self, automation_id: str | None = None, *, limit: int = 50) -> list[AutomationRun]:
+    if automation_id:
+      rows = self._storage.fetchall(
+        """
+        SELECT id, automation_id, ran_at, status, duration_ms, output
+        FROM automation_runs
+        WHERE automation_id = ?
+        ORDER BY ran_at DESC
+        LIMIT ?
+        """,
+        (automation_id, limit),
+      )
+    else:
+      rows = self._storage.fetchall(
+        """
+        SELECT id, automation_id, ran_at, status, duration_ms, output
+        FROM automation_runs
+        ORDER BY ran_at DESC
+        LIMIT ?
+        """,
+        (limit,),
+      )
+    return [
+      AutomationRun(
+        id=str(row[0]),
+        automation_id=str(row[1]),
+        ran_at=_from_iso(str(row[2])),
+        status=str(row[3]),
+        duration_ms=int(row[4] or 0),
+        output=str(row[5] or ""),
+      )
+      for row in rows
+    ]
+
+  def counts(self, automation_id: str) -> tuple[int, int]:
+    row = self._storage.fetchone(
+      "SELECT run_count, failure_count FROM automations WHERE id = ?",
+      (automation_id,),
+    )
+    if row is None:
+      return (0, 0)
+    return (int(row[0] or 0), int(row[1] or 0))

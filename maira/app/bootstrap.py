@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 import threading
 
+from typing import TYPE_CHECKING
+
 from loguru import logger
-from PySide6.QtWidgets import QApplication
 
 from maira.app.container import Container
 from maira.app.lifecycle import Lifecycle
@@ -21,6 +22,9 @@ from maira.infrastructure.logging.loguru_setup import setup_logging
 from maira.infrastructure.persistence.sqlite.connection import SqliteStorage
 from maira.infrastructure.persistence.sqlite.migrations import apply_migrations
 from maira.infrastructure.persistence.sqlite.repositories import (
+  AutomationRunRepository,
+  CalendarEventRepository,
+  NotificationRepository,
   AutomationRepository,
   ConversationRepository,
   MemoryRepository,
@@ -32,7 +36,7 @@ from maira.infrastructure.speech.kokoro.engine import KokoroEngine
 from maira.infrastructure.speech.whisper.engine import WhisperEngine
 from maira.infrastructure.vector.chromadb.collections import ChromaVectorStore
 from maira.modules.automation.executor import AutomationExecutor
-from maira.modules.automation.runner import AutomationRunner
+from maira.modules.automation.scheduler import AutomationScheduler
 from maira.modules.automation.service import AutomationService
 from maira.modules.brain.conversation import ConversationSession
 from maira.modules.brain.service import BrainService
@@ -48,9 +52,12 @@ from maira.modules.voice.stt.registry import create_stt, ensure_default_stt_prov
 from maira.modules.voice.tts import TextToSpeech
 from maira.modules.voice.tts.registry import create_tts, ensure_default_tts_providers
 from maira.shared.utils.paths import database_path, project_root
-from maira.ui.application import create_qt_application
-from maira.ui.presence.runtime import PresenceRuntime
-from maira.ui.prototype.shell.main_window import PrototypeWindow as MainWindow
+
+if TYPE_CHECKING:  # Qt types are only needed for annotations here.
+  from PySide6.QtWidgets import QApplication
+
+  from maira.ui.presence.runtime import PresenceRuntime
+  from maira.ui.prototype.shell.main_window import PrototypeWindow as MainWindow
 
 
 @dataclass
@@ -62,11 +69,11 @@ class Runtime:
 
 @dataclass
 class AppContext:
-  qt_app: QApplication
+  qt_app: "QApplication"
   container: Container
   lifecycle: Lifecycle
-  window: MainWindow
-  presence: PresenceRuntime | None
+  window: "MainWindow"
+  presence: "PresenceRuntime | None"
 
 
 def _resolve_chroma_path(settings: Settings) -> Path:
@@ -128,6 +135,12 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
   container.register_instance("note_repository", note_repository)
   container.register_instance("memory_repository", memory_repository)
   container.register_instance("automation_repository", automation_repository)
+  calendar_repository = CalendarEventRepository(storage)
+  notification_repository = NotificationRepository(storage)
+  automation_run_repository = AutomationRunRepository(storage)
+  container.register_instance("calendar_repository", calendar_repository)
+  container.register_instance("notification_repository", notification_repository)
+  container.register_instance("automation_run_repository", automation_run_repository)
   container.register_instance("planner", PlannerService(task_repository, note_repository))
   automation = AutomationService(automation_repository)
   container.register_instance("automation", automation)
@@ -183,7 +196,10 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
 
   container.register("brain", brain_factory)
 
-  def automation_runtime_factory() -> AutomationRunner:
+  def automation_runtime_factory() -> "AutomationRunner":
+    # QObject-based: imported here so headless never touches Qt.
+    from maira.modules.automation.runner import AutomationRunner
+
     automation = container.resolve("automation")
     brain = container.resolve("brain")
     desktop = container.resolve("desktop")
@@ -199,6 +215,42 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
     return runner
 
   container.register("automation_runner", automation_runtime_factory)
+
+  def automation_scheduler_factory() -> AutomationScheduler:
+    """Headless automations: no Qt loop, so a daemon thread polls due jobs."""
+    from maira.modules.automation.scheduler import AutomationScheduler as _Scheduler
+
+    def notify(message: str) -> None:
+      event_bus.publish("automation.notify", {"message": message})
+
+    executor = AutomationExecutor(
+      container.resolve("automation"),
+      brain=container.resolve("brain"),
+      desktop=container.resolve("desktop"),
+      on_notify=notify,
+    )
+
+    def announce(job, result) -> None:
+      notification_repository.create(
+        type="automation",
+        title="Automation ran" if result.ok else "Automation failed",
+        body=f"{job.title} — {result.message}",
+      )
+      automation_run_repository.record(
+        job.id,
+        status="done" if result.ok else "failed",
+        output=result.message,
+      )
+      event_bus.publish(
+        "automation",
+        {"id": job.id, "name": job.title, "ok": result.ok, "message": result.message},
+      )
+
+    scheduler = _Scheduler(container.resolve("automation"), executor, on_job_ran=announce)
+    lifecycle.on_shutdown(scheduler.stop)
+    return scheduler
+
+  container.register("automation_scheduler", automation_scheduler_factory)
 
   def voice_factory() -> VoiceService:
     ensure_default_stt_providers()
@@ -294,6 +346,10 @@ def start_api(runtime: Runtime, *, blocking: bool = False) -> None:
   if runtime.container.try_resolve("overlay") is None:
     runtime.container.register_instance("overlay", OverlayStore(data_dir() / "user_profile.json"))
 
+  # Headless has no QTimer, so the thread-backed scheduler runs due automations.
+  if blocking:
+    runtime.container.resolve("automation_scheduler").start()
+
   app = create_app(runtime.container)
   if blocking:
     serve_api(app, runtime.settings, runtime.lifecycle)
@@ -312,6 +368,12 @@ def run_headless() -> None:
 
 
 def bootstrap() -> AppContext:
+  # Qt is imported here, not at module scope, so `--headless` runs on machines
+  # (and containers) where Qt's system libraries are not installed.
+  from maira.ui.application import create_qt_application
+  from maira.ui.presence.runtime import PresenceRuntime
+  from maira.ui.prototype.shell.main_window import PrototypeWindow as MainWindow
+
   runtime = build_runtime()
   logger.info("Starting Maira")
   start_api(runtime, blocking=False)
@@ -319,7 +381,7 @@ def bootstrap() -> AppContext:
   qt_app = create_qt_application(runtime.settings)
   window = MainWindow(container=runtime.container, skip_onboarding=True)
 
-  presence: PresenceRuntime | None = None
+  presence: "PresenceRuntime | None" = None
   if runtime.settings.presence.enabled:
     presence = PresenceRuntime(
       window,

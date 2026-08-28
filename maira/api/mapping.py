@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from maira.core.domain.entities import Conversation, MemoryEntry, Message
+from maira.core.domain.entities import (
+  AutomationJob,
+  AutomationRun,
+  CalendarEvent,
+  Conversation,
+  MemoryEntry,
+  Message,
+  Notification,
+  Task,
+)
 from maira.core.domain.value_objects import MemoryCategory, MessageRole
 
 API_MEMORY_CATEGORIES = (
@@ -107,3 +116,104 @@ def title_from_text(text: str, limit: int = 48) -> str:
   if len(cleaned) <= limit:
     return cleaned
   return f"{cleaned[: limit - 3]}..."
+
+
+def task_to_api(task: Task) -> dict:
+  return {
+    "id": task.id,
+    "title": task.title,
+    "description": task.description,
+    "priority": task.priority.value,
+    "status": task.stage,
+    "due": iso(task.due_at),
+    "projectId": task.project_id,
+    "tags": list(task.tags),
+    "estimate": task.estimate,
+    "recurrence": task.recurrence,
+    "completedAt": iso(task.completed_at),
+    "createdAt": iso(task.created_at),
+  }
+
+
+def event_to_api(event: CalendarEvent) -> dict:
+  return {
+    "id": event.id,
+    "title": event.title,
+    "start": iso(event.start_at),
+    "end": iso(event.end_at),
+    "type": event.type,
+    "projectId": event.project_id,
+    "taskId": event.task_id,
+  }
+
+
+def notification_to_api(notification: Notification) -> dict:
+  return {
+    "id": notification.id,
+    "type": notification.type,
+    "title": notification.title,
+    "body": notification.body,
+    "at": iso(notification.created_at),
+    "read": bool(notification.read),
+  }
+
+
+def automation_run_to_api(run: AutomationRun) -> dict:
+  return {
+    "id": run.id,
+    "automationId": run.automation_id,
+    "at": iso(run.ran_at),
+    "status": run.status,
+    "ms": run.duration_ms,
+    "output": run.output,
+  }
+
+
+_RECURRENCE_LABEL = {
+  "daily": "Every day",
+  "weekly": "Every week",
+  "none": "Once",
+}
+
+
+def automation_trigger_label(job: AutomationJob) -> str:
+  """'Every day · 8:00 AM' — the human sentence the automations page shows."""
+  base = _RECURRENCE_LABEL.get(job.recurrence.value, job.recurrence.value.capitalize())
+  moment = job.run_at
+  if moment is None:
+    return base
+  if moment.tzinfo is None:
+    moment = moment.replace(tzinfo=timezone.utc)
+  local = moment.astimezone()
+  clock = local.strftime("%I:%M %p").lstrip("0")
+  if job.recurrence.value == "none":
+    return f"{local.strftime('%d %b')} · {clock}"
+  return f"{base} · {clock}"
+
+
+def automation_status_to_api(job: AutomationJob) -> str:
+  if not job.enabled:
+    return "paused"
+  if job.status.value == "failed":
+    return "failed"
+  if job.status.value in {"done", "cancelled"}:
+    return "paused" if job.status.value == "cancelled" else "active"
+  return "active"
+
+
+def automation_to_api(job: AutomationJob, *, runs: int = 0, failures: int = 0) -> dict:
+  pending = job.status.value == "pending" and job.enabled
+  return {
+    "id": job.id,
+    "name": job.title,
+    "trigger": automation_trigger_label(job),
+    "action": job.instruction,
+    "status": automation_status_to_api(job),
+    "lastRun": iso(job.last_run_at),
+    "nextRun": iso(job.run_at) if pending else None,
+    "runs": runs,
+    "failures": failures,
+    "error": job.last_error,
+    "recurrence": job.recurrence.value,
+    "actionType": job.action_type.value,
+  }

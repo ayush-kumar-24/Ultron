@@ -31,7 +31,18 @@ def create_app(container: Container):
   from fastapi.staticfiles import StaticFiles
   from starlette.exceptions import HTTPException as StarletteHTTPException
 
-  from maira.api.routes import chat, memory, settings as settings_routes, system, user
+  from maira.api.routes import (
+    automations,
+    calendar,
+    chat,
+    memory,
+    notifications,
+    overview,
+    settings as settings_routes,
+    system,
+    tasks,
+    user,
+  )
 
   bind_container(container)
   settings: Settings = container.resolve("settings")
@@ -52,6 +63,11 @@ def create_app(container: Container):
   app.include_router(settings_routes.router, prefix="/api")
   app.include_router(chat.router, prefix="/api")
   app.include_router(memory.router, prefix="/api")
+  app.include_router(overview.router, prefix="/api")
+  app.include_router(tasks.router, prefix="/api")
+  app.include_router(calendar.router, prefix="/api")
+  app.include_router(automations.router, prefix="/api")
+  app.include_router(notifications.router, prefix="/api")
 
   @app.api_route("/api/{path:path}", methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"])
   def not_built(path: str) -> JSONResponse:

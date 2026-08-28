@@ -10,6 +10,7 @@ from maira.infrastructure.persistence.sqlite.connection import SqliteStorage
 from maira.infrastructure.persistence.sqlite.migrations import (
   apply_migrations,
   current_version,
+  discover_migrations,
 )
 from maira.infrastructure.persistence.sqlite.repositories import ConversationRepository
 
@@ -31,9 +32,10 @@ def test_migrations_are_idempotent(tmp_path: Path) -> None:
   db = SqliteStorage(tmp_path / "mig.db")
   first = apply_migrations(db)
   second = apply_migrations(db)
-  assert first == [1, 2, 3, 4, 5]
+  expected = [version for version, _path in discover_migrations()]
+  assert first == expected
   assert second == []
-  assert current_version(db) == 5
+  assert current_version(db) == expected[-1]
   db.close()
 
 

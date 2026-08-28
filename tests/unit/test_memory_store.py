@@ -88,6 +88,6 @@ def test_empty_memory_rejected(memory: MemoryService) -> None:
 def test_migration_three_on_fresh_db(tmp_path: Path) -> None:
   storage = SqliteStorage(tmp_path / "fresh.db")
   applied = apply_migrations(storage)
-  assert applied == [1, 2, 3, 4, 5]
-  assert current_version(storage) == 5
+  assert applied[:5] == [1, 2, 3, 4, 5]
+  assert current_version(storage) == applied[-1]
   storage.close()

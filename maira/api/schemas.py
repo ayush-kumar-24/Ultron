@@ -62,3 +62,64 @@ class SettingsPatch(BaseModel):
 
   def as_dict(self) -> dict[str, Any]:
     return self.model_dump(exclude_unset=True)
+
+
+class TaskCreate(BaseModel):
+  """Either a plain `text` line to parse, or explicit fields."""
+
+  text: str | None = None
+  title: str | None = None
+  description: str | None = None
+  priority: str | None = None
+  due: str | None = None
+  projectId: str | None = None
+  tags: list[str] | None = None
+  estimate: int | None = None
+  recurrence: str | None = None
+
+
+class TaskPatch(BaseModel):
+  title: str | None = None
+  description: str | None = None
+  priority: str | None = None
+  status: str | None = None
+  due: str | None = None
+  projectId: str | None = None
+  tags: list[str] | None = None
+  estimate: int | None = None
+
+
+class TaskParseIn(BaseModel):
+  text: str
+
+
+class MessageTaskIn(BaseModel):
+  title: str
+  projectId: str | None = None
+
+
+class EventCreate(BaseModel):
+  title: str
+  start: str
+  end: str | None = None
+  type: str | None = None
+  projectId: str | None = None
+
+
+class AutomationCreate(BaseModel):
+  text: str | None = None
+  name: str | None = None
+  trigger: str | None = None
+  action: str | None = None
+  due: str | None = None
+  recurrence: str | None = None
+
+
+class AutomationPatch(BaseModel):
+  status: str | None = None
+  name: str | None = None
+  action: str | None = None
+
+
+class NotificationPatch(BaseModel):
+  read: bool | None = None

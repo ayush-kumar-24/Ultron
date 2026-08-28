@@ -70,5 +70,5 @@ def test_migration_two_applies_on_fresh_db(tmp_path: Path) -> None:
   assert 3 in applied
   assert 4 in applied
   assert 5 in applied
-  assert current_version(storage) == 5
+  assert current_version(storage) == applied[-1]
   storage.close()

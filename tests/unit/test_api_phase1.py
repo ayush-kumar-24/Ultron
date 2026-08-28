@@ -129,7 +129,7 @@ def test_health_ok(api) -> None:
 
 def test_unimplemented_endpoint_is_json_404(api) -> None:
   client, _, _, _ = api
-  response = client.get("/api/overview")
+  response = client.get("/api/agents")
   assert response.status_code == 404
   assert response.headers["content-type"].startswith("application/json")
   assert "detail" in response.json()

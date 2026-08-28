@@ -7,7 +7,13 @@ from maira.app.settings import Settings
 from maira.core.bus.event_bus import EventBus
 from maira.core.interfaces.brain import Brain
 from maira.core.interfaces.memory import Memory
-from maira.infrastructure.persistence.sqlite.repositories import ConversationRepository
+from maira.infrastructure.persistence.sqlite.repositories import (
+  AutomationRunRepository,
+  CalendarEventRepository,
+  ConversationRepository,
+  NotificationRepository,
+  TaskRepository,
+)
 from maira.modules.brain.service import BrainService
 
 _container: Container | None = None
@@ -49,6 +55,30 @@ def get_memory() -> Memory:
 
 def get_conversations() -> ConversationRepository:
   return get_container().resolve("conversation_repository")
+
+
+def get_tasks() -> TaskRepository:
+  return get_container().resolve("task_repository")
+
+
+def get_calendar() -> CalendarEventRepository:
+  return get_container().resolve("calendar_repository")
+
+
+def get_notifications() -> NotificationRepository:
+  return get_container().resolve("notification_repository")
+
+
+def get_automations():
+  return get_container().resolve("automation")
+
+
+def get_automation_runs() -> AutomationRunRepository:
+  return get_container().resolve("automation_run_repository")
+
+
+def get_scheduler():
+  return get_container().try_resolve("automation_scheduler")
 
 
 def get_overlay():
