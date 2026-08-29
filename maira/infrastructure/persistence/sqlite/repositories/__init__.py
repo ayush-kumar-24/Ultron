@@ -8,6 +8,9 @@ from datetime import datetime, timezone
 
 from maira.core.domain.entities import (
   AutomationRun,
+  Goal,
+  KnowledgeItem,
+  Project,
   CalendarEvent,
   Notification,
   AutomationJob,
@@ -1201,3 +1204,349 @@ class AutomationRunRepository:
     if row is None:
       return (0, 0)
     return (int(row[0] or 0), int(row[1] or 0))
+
+
+def _json_list(raw) -> list:
+  try:
+    value = json.loads(str(raw or "[]"))
+  except json.JSONDecodeError:
+    return []
+  return value if isinstance(value, list) else []
+
+
+class ProjectRepository:
+  def __init__(self, storage: Storage) -> None:
+    self._storage = storage
+
+  def create(
+    self,
+    name: str,
+    *,
+    description: str = "",
+    color: str = "info",
+    tags: list[str] | None = None,
+  ) -> Project:
+    now = _utc_now()
+    project = Project(
+      id=str(uuid.uuid4()),
+      name=name.strip(),
+      description=description,
+      status="active",
+      color=color,
+      progress=0,
+      tags=list(tags or []),
+      created_at=now,
+      updated_at=now,
+    )
+    self._storage.execute(
+      """
+      INSERT INTO projects (id, name, description, status, color, progress, tags, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      """,
+      (
+        project.id,
+        project.name,
+        project.description,
+        project.status,
+        project.color,
+        project.progress,
+        json.dumps(project.tags),
+        _to_iso(now),
+        _to_iso(now),
+      ),
+    )
+    return project
+
+  def list_projects(self) -> list[Project]:
+    rows = self._storage.fetchall(
+      """
+      SELECT id, name, description, status, color, progress, tags, created_at, updated_at
+      FROM projects
+      ORDER BY updated_at DESC
+      """
+    )
+    return [self._row(row) for row in rows]
+
+  def get(self, project_id: str) -> Project | None:
+    row = self._storage.fetchone(
+      """
+      SELECT id, name, description, status, color, progress, tags, created_at, updated_at
+      FROM projects
+      WHERE id = ?
+      """,
+      (project_id,),
+    )
+    return self._row(row) if row else None
+
+  def update(
+    self,
+    project_id: str,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    status: str | None = None,
+    progress: int | None = None,
+  ) -> Project | None:
+    if self.get(project_id) is None:
+      return None
+    sets, values = [], []
+    for column, value in (
+      ("name", name),
+      ("description", description),
+      ("status", status),
+      ("progress", progress),
+    ):
+      if value is not None:
+        sets.append(f"{column} = ?")
+        values.append(value)
+    if not sets:
+      return self.get(project_id)
+    sets.append("updated_at = ?")
+    values.extend([_to_iso(_utc_now()), project_id])
+    self._storage.execute(f"UPDATE projects SET {', '.join(sets)} WHERE id = ?", tuple(values))
+    return self.get(project_id)
+
+  def delete(self, project_id: str) -> bool:
+    if self.get(project_id) is None:
+      return False
+    self._storage.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+    return True
+
+  @staticmethod
+  def _row(row: tuple) -> Project:
+    return Project(
+      id=str(row[0]),
+      name=str(row[1]),
+      description=str(row[2] or ""),
+      status=str(row[3] or "active"),
+      color=str(row[4] or "info"),
+      progress=int(row[5] or 0),
+      tags=_json_list(row[6]),
+      created_at=_from_iso(str(row[7])),
+      updated_at=_from_iso(str(row[8])),
+    )
+
+
+class GoalRepository:
+  def __init__(self, storage: Storage) -> None:
+    self._storage = storage
+
+  def create(
+    self,
+    title: str,
+    *,
+    objective: str = "",
+    deadline: datetime | None = None,
+    project_id: str | None = None,
+    milestones: list[dict] | None = None,
+  ) -> Goal:
+    now = _utc_now()
+    goal = Goal(
+      id=str(uuid.uuid4()),
+      title=title.strip(),
+      objective=objective,
+      deadline=deadline,
+      progress=0,
+      project_id=project_id,
+      milestones=list(milestones or []),
+      created_at=now,
+      updated_at=now,
+    )
+    self._storage.execute(
+      """
+      INSERT INTO goals (id, title, objective, deadline, progress, project_id, milestones, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      """,
+      (
+        goal.id,
+        goal.title,
+        goal.objective,
+        _to_iso(deadline) if deadline else None,
+        goal.progress,
+        goal.project_id,
+        json.dumps(goal.milestones),
+        _to_iso(now),
+        _to_iso(now),
+      ),
+    )
+    return goal
+
+  def list_goals(self) -> list[Goal]:
+    rows = self._storage.fetchall(
+      """
+      SELECT id, title, objective, deadline, progress, project_id, milestones, created_at, updated_at
+      FROM goals
+      ORDER BY created_at DESC
+      """
+    )
+    return [self._row(row) for row in rows]
+
+  def get(self, goal_id: str) -> Goal | None:
+    row = self._storage.fetchone(
+      """
+      SELECT id, title, objective, deadline, progress, project_id, milestones, created_at, updated_at
+      FROM goals
+      WHERE id = ?
+      """,
+      (goal_id,),
+    )
+    return self._row(row) if row else None
+
+  def update(
+    self,
+    goal_id: str,
+    *,
+    title: str | None = None,
+    objective: str | None = None,
+    progress: int | None = None,
+    milestones: list[dict] | None = None,
+  ) -> Goal | None:
+    if self.get(goal_id) is None:
+      return None
+    sets, values = [], []
+    if title is not None:
+      sets.append("title = ?")
+      values.append(title)
+    if objective is not None:
+      sets.append("objective = ?")
+      values.append(objective)
+    if progress is not None:
+      sets.append("progress = ?")
+      values.append(max(0, min(100, int(progress))))
+    if milestones is not None:
+      sets.append("milestones = ?")
+      values.append(json.dumps(milestones))
+    if not sets:
+      return self.get(goal_id)
+    sets.append("updated_at = ?")
+    values.extend([_to_iso(_utc_now()), goal_id])
+    self._storage.execute(f"UPDATE goals SET {', '.join(sets)} WHERE id = ?", tuple(values))
+    return self.get(goal_id)
+
+  def delete(self, goal_id: str) -> bool:
+    if self.get(goal_id) is None:
+      return False
+    self._storage.execute("DELETE FROM goals WHERE id = ?", (goal_id,))
+    return True
+
+  @staticmethod
+  def _row(row: tuple) -> Goal:
+    deadline = row[3]
+    milestones = _json_list(row[6])
+    return Goal(
+      id=str(row[0]),
+      title=str(row[1]),
+      objective=str(row[2] or ""),
+      deadline=_from_iso(str(deadline)) if deadline else None,
+      progress=int(row[4] or 0),
+      project_id=str(row[5]) if row[5] else None,
+      milestones=[item for item in milestones if isinstance(item, dict)],
+      created_at=_from_iso(str(row[7])),
+      updated_at=_from_iso(str(row[8])),
+    )
+
+
+class KnowledgeRepository:
+  def __init__(self, storage: Storage) -> None:
+    self._storage = storage
+
+  def create(
+    self,
+    title: str,
+    *,
+    type: str = "doc",
+    source: str = "Upload",
+    body: str = "",
+    tags: list[str] | None = None,
+    project_id: str | None = None,
+  ) -> KnowledgeItem:
+    now = _utc_now()
+    item = KnowledgeItem(
+      id=str(uuid.uuid4()),
+      title=title.strip(),
+      type=type,
+      source=source,
+      body=body,
+      summary=None,
+      size=len(body.encode("utf-8")),
+      tags=list(tags or []),
+      status="ready",
+      project_id=project_id,
+      created_at=now,
+      updated_at=now,
+    )
+    self._storage.execute(
+      """
+      INSERT INTO knowledge_items
+        (id, title, type, source, body, summary, size, tags, status, project_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      """,
+      (
+        item.id,
+        item.title,
+        item.type,
+        item.source,
+        item.body,
+        item.summary,
+        item.size,
+        json.dumps(item.tags),
+        item.status,
+        item.project_id,
+        _to_iso(now),
+        _to_iso(now),
+      ),
+    )
+    return item
+
+  def list_items(self) -> list[KnowledgeItem]:
+    rows = self._storage.fetchall(
+      """
+      SELECT id, title, type, source, body, summary, size, tags, status, project_id, created_at, updated_at
+      FROM knowledge_items
+      ORDER BY created_at DESC
+      """
+    )
+    return [self._row(row) for row in rows]
+
+  def get(self, item_id: str) -> KnowledgeItem | None:
+    row = self._storage.fetchone(
+      """
+      SELECT id, title, type, source, body, summary, size, tags, status, project_id, created_at, updated_at
+      FROM knowledge_items
+      WHERE id = ?
+      """,
+      (item_id,),
+    )
+    return self._row(row) if row else None
+
+  def set_summary(self, item_id: str, summary: str) -> KnowledgeItem | None:
+    if self.get(item_id) is None:
+      return None
+    self._storage.execute(
+      "UPDATE knowledge_items SET summary = ?, updated_at = ? WHERE id = ?",
+      (summary, _to_iso(_utc_now()), item_id),
+    )
+    return self.get(item_id)
+
+  def delete(self, item_id: str) -> bool:
+    if self.get(item_id) is None:
+      return False
+    self._storage.execute("DELETE FROM knowledge_items WHERE id = ?", (item_id,))
+    return True
+
+  @staticmethod
+  def _row(row: tuple) -> KnowledgeItem:
+    return KnowledgeItem(
+      id=str(row[0]),
+      title=str(row[1]),
+      type=str(row[2] or "doc"),
+      source=str(row[3] or "Upload"),
+      body=str(row[4] or ""),
+      summary=str(row[5]) if row[5] else None,
+      size=int(row[6] or 0),
+      tags=_json_list(row[7]),
+      status=str(row[8] or "ready"),
+      project_id=str(row[9]) if row[9] else None,
+      created_at=_from_iso(str(row[10])),
+      updated_at=_from_iso(str(row[11])),
+    )

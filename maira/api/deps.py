@@ -9,6 +9,9 @@ from maira.core.interfaces.brain import Brain
 from maira.core.interfaces.memory import Memory
 from maira.infrastructure.persistence.sqlite.repositories import (
   AutomationRunRepository,
+  GoalRepository,
+  KnowledgeRepository,
+  ProjectRepository,
   CalendarEventRepository,
   ConversationRepository,
   NotificationRepository,
@@ -49,6 +52,10 @@ def get_brain_service() -> BrainService:
   return brain
 
 
+def get_llm():
+  return get_container().resolve("llm")
+
+
 def get_memory() -> Memory:
   return get_container().resolve("memory")
 
@@ -79,6 +86,22 @@ def get_automation_runs() -> AutomationRunRepository:
 
 def get_scheduler():
   return get_container().try_resolve("automation_scheduler")
+
+
+def get_projects() -> ProjectRepository:
+  return get_container().resolve("project_repository")
+
+
+def get_goals() -> GoalRepository:
+  return get_container().resolve("goal_repository")
+
+
+def get_knowledge() -> KnowledgeRepository:
+  return get_container().resolve("knowledge_repository")
+
+
+def get_storage():
+  return get_container().resolve("storage")
 
 
 def get_overlay():

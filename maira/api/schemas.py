@@ -123,3 +123,41 @@ class AutomationPatch(BaseModel):
 
 class NotificationPatch(BaseModel):
   read: bool | None = None
+
+
+class ProjectCreate(BaseModel):
+  name: str
+  description: str | None = None
+  color: str | None = None
+  tags: list[str] | None = None
+
+
+class ProjectPatch(BaseModel):
+  name: str | None = None
+  description: str | None = None
+  status: str | None = None
+  progress: int | None = None
+
+
+class GoalCreate(BaseModel):
+  title: str
+  objective: str | None = None
+  deadline: str | None = None
+  projectId: str | None = None
+  milestones: list[Any] | None = None
+
+
+class GoalPatch(BaseModel):
+  title: str | None = None
+  objective: str | None = None
+  progress: int | None = None
+  milestones: list[Any] | None = None
+
+
+class KnowledgeCreate(BaseModel):
+  title: str
+  type: str | None = None
+  source: str | None = None
+  body: str | None = None
+  tags: list[str] | None = None
+  projectId: str | None = None

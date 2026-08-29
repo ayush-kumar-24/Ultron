@@ -1,6 +1,6 @@
 // Config accessor. Merges window.ULTRON_CONFIG (from /config.js) with localStorage overrides.
 const defaults = {
-  mode: 'auto', apiBaseUrl: '', apiPrefix: '/api', healthPath: '/system/health', eventsPath: '/events',
+  mode: 'auto', apiBaseUrl: '', apiPrefix: '/api', healthPath: '/system/health', eventsPath: '/stream',
   auth: { mode: 'bearer', tokenKey: 'ultron.token', loginUrl: null },
   headers: {}, requestTimeoutMs: 30000, retry: { attempts: 2, backoffMs: 400 },
   features: { voice: true, recording: true, mind: true, research: true, agents: true, automations: true },

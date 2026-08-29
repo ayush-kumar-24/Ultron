@@ -9,9 +9,12 @@ from maira.core.domain.entities import (
   AutomationRun,
   CalendarEvent,
   Conversation,
+  Goal,
+  KnowledgeItem,
   MemoryEntry,
   Message,
   Notification,
+  Project,
   Task,
 )
 from maira.core.domain.value_objects import MemoryCategory, MessageRole
@@ -216,4 +219,46 @@ def automation_to_api(job: AutomationJob, *, runs: int = 0, failures: int = 0) -
     "error": job.last_error,
     "recurrence": job.recurrence.value,
     "actionType": job.action_type.value,
+  }
+
+
+def project_to_api(project: Project, *, open_tasks: int = 0) -> dict:
+  return {
+    "id": project.id,
+    "name": project.name,
+    "description": project.description,
+    "status": project.status,
+    "color": project.color,
+    "progress": project.progress,
+    "tags": list(project.tags),
+    "openTasks": open_tasks,
+    "updatedAt": iso(project.updated_at),
+  }
+
+
+def goal_to_api(goal: Goal, *, project_name: str | None = None) -> dict:
+  return {
+    "id": goal.id,
+    "title": goal.title,
+    "objective": goal.objective,
+    "deadline": iso(goal.deadline),
+    "progress": goal.progress,
+    "projectId": goal.project_id,
+    "project": project_name,
+    "milestones": list(goal.milestones),
+  }
+
+
+def knowledge_to_api(item: KnowledgeItem) -> dict:
+  return {
+    "id": item.id,
+    "title": item.title,
+    "type": item.type,
+    "source": item.source,
+    "size": item.size,
+    "tags": list(item.tags),
+    "status": item.status,
+    "summary": item.summary,
+    "projectId": item.project_id,
+    "createdAt": iso(item.created_at),
   }

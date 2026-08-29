@@ -7,7 +7,7 @@ import { EmptyState, Skeleton } from '../components/index.js';
 
 const TYPE_ICON = { reminder: 'clock', task: 'tasks', agent: 'agents', automation: 'automations', system: 'monitor', important: 'alert' };
 const TYPE_ROUTE = { reminder: '/tasks', task: '/tasks', agent: '/agents', automation: '/automations', system: '/settings', important: '/activity' };
-let panel = null, dispose = null;
+let panel = null, dispose = null, onKey = null;
 
 export async function openNotifications(anchor) {
   if (panel) { closeNotifications(); return; }
@@ -17,6 +17,10 @@ export async function openNotifications(anchor) {
     listEl);
   document.body.append(panel);
   dispose = onClickOutside(panel, (e) => { if (!anchor.contains(e.target)) closeNotifications(); });
+  // Escape closes it too — a dialog that only dismisses on click-outside traps
+  // keyboard users and swallows clicks meant for the page behind it.
+  onKey = (e) => { if (e.key === 'Escape') { closeNotifications(); anchor.focus?.(); } };
+  document.addEventListener('keydown', onKey);
   const off = events.on('notification', async () => render(await notificationService.list()));
   panel._off = off;
   render(await notificationService.list());
@@ -31,4 +35,9 @@ export async function openNotifications(anchor) {
       : EmptyState({ icon: 'bell', title: 'All quiet.', body: 'Ultron only interrupts for things that matter.' }));
   }
 }
-export function closeNotifications() { if (!panel) return; dispose?.(); panel._off?.(); panel.remove(); panel = null; }
+export function closeNotifications() {
+  if (!panel) return;
+  dispose?.(); panel._off?.();
+  if (onKey) { document.removeEventListener('keydown', onKey); onKey = null; }
+  panel.remove(); panel = null;
+}

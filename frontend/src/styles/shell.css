@@ -42,6 +42,7 @@
 .avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#2a313c,#12161c);border:1px solid var(--line2);display:grid;place-items:center;font-size:11.5px;font-weight:600;color:var(--t1)}
 
 .content{max-width:var(--content-max);margin:0 auto;padding:8px var(--pad) 120px;animation:rise .32s var(--ease-out)}
+.content[data-page="chat"],.content[data-page="mind"]{padding-bottom:10px;overflow:hidden}
 .content.leaving{opacity:0;transform:translateY(-4px);transition:opacity .12s,transform .12s}
 
 /* bottom nav (mobile) */

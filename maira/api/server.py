@@ -40,9 +40,12 @@ def create_app(container: Container):
     overview,
     settings as settings_routes,
     system,
+    activity,
     tasks,
     user,
+    workspace,
   )
+  from maira.api.routes import stream as stream_routes
 
   bind_container(container)
   settings: Settings = container.resolve("settings")
@@ -68,9 +71,16 @@ def create_app(container: Container):
   app.include_router(calendar.router, prefix="/api")
   app.include_router(automations.router, prefix="/api")
   app.include_router(notifications.router, prefix="/api")
+  app.include_router(workspace.router, prefix="/api")
+  app.include_router(activity.router, prefix="/api")
+  app.include_router(stream_routes.router, prefix="/api")
 
-  @app.api_route("/api/{path:path}", methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"])
-  def not_built(path: str) -> JSONResponse:
+  @app.api_route(
+    "/api/{path:path}",
+    methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    include_in_schema=False,
+  )
+  def not_built(path: str):
     return JSONResponse({"detail": f"Not implemented: /api/{path}"}, status_code=404)
 
   @app.exception_handler(RequestValidationError)

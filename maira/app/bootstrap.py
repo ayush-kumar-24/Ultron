@@ -23,6 +23,9 @@ from maira.infrastructure.persistence.sqlite.connection import SqliteStorage
 from maira.infrastructure.persistence.sqlite.migrations import apply_migrations
 from maira.infrastructure.persistence.sqlite.repositories import (
   AutomationRunRepository,
+  GoalRepository,
+  KnowledgeRepository,
+  ProjectRepository,
   CalendarEventRepository,
   NotificationRepository,
   AutomationRepository,
@@ -141,6 +144,9 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
   container.register_instance("calendar_repository", calendar_repository)
   container.register_instance("notification_repository", notification_repository)
   container.register_instance("automation_run_repository", automation_run_repository)
+  container.register_instance("project_repository", ProjectRepository(storage))
+  container.register_instance("goal_repository", GoalRepository(storage))
+  container.register_instance("knowledge_repository", KnowledgeRepository(storage))
   container.register_instance("planner", PlannerService(task_repository, note_repository))
   automation = AutomationService(automation_repository)
   container.register_instance("automation", automation)

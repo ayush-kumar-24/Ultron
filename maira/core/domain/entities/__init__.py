@@ -85,6 +85,48 @@ class Notification:
 
 
 @dataclass
+class Project:
+  id: str
+  name: str
+  description: str
+  status: str
+  color: str
+  progress: int
+  tags: list[str]
+  created_at: datetime
+  updated_at: datetime
+
+
+@dataclass
+class Goal:
+  id: str
+  title: str
+  objective: str
+  deadline: datetime | None
+  progress: int
+  project_id: str | None
+  milestones: list[dict]
+  created_at: datetime
+  updated_at: datetime
+
+
+@dataclass
+class KnowledgeItem:
+  id: str
+  title: str
+  type: str
+  source: str
+  body: str
+  summary: str | None
+  size: int
+  tags: list[str]
+  status: str
+  project_id: str | None
+  created_at: datetime
+  updated_at: datetime
+
+
+@dataclass
 class AutomationRun:
   id: str
   automation_id: str

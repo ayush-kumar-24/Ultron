@@ -34,18 +34,18 @@
 
 /* chat */
 .chat{display:grid;grid-template-columns:260px minmax(0,1fr);gap:0;height:calc(100vh - 92px);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--surface);margin-top:4px}
-.chat .rail{border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0;background:rgba(0,0,0,.15)}
+.chat .rail{border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0;min-height:0;background:rgba(0,0,0,.15)}
 .chat .rail .rh{display:flex;gap:8px;padding:12px;border-bottom:1px solid var(--line)}
-.chat .rail .rl{overflow:auto;flex:1;padding:6px}
+.chat .rail .rl{overflow:auto;flex:1;min-height:0;padding:6px}
 .conv{display:flex;flex-direction:column;gap:2px;padding:9px 10px;border-radius:9px;cursor:pointer;border:1px solid transparent}
 .conv:hover{background:rgba(255,255,255,.03)}
 .conv.on{background:rgba(255,255,255,.06);border-color:var(--line2)}
 .conv .t{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .conv .s{font-size:11px;color:var(--t3);display:flex;gap:6px;align-items:center}
-.chat .thread{display:flex;flex-direction:column;min-width:0}
+.chat .thread{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
 .chat .th{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);min-height:52px}
 .chat .th h2{font-size:14px;font-weight:600}
-.chat .msgs{flex:1;overflow:auto;padding:20px 22px;display:flex;flex-direction:column;gap:18px;scroll-behavior:smooth}
+.chat .msgs{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:20px 22px;display:flex;flex-direction:column;gap:18px;scroll-behavior:smooth}
 .msg{display:grid;grid-template-columns:30px minmax(0,1fr);gap:12px;animation:rise .3s var(--ease-out);max-width:860px}
 .msg .who{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:10.5px;font-weight:600;border:1px solid var(--line2);color:var(--t2);flex:none}
 .msg.user .who{background:rgba(255,255,255,.06);color:var(--t1)}
