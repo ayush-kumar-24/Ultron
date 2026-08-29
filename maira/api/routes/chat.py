@@ -28,6 +28,12 @@ from maira.modules.brain.streaming import TOPIC_COMPLETE, TOPIC_ERROR, TOPIC_TOK
 
 router = APIRouter(tags=["chat"])
 
+# The brain is a singleton publishing on one shared event bus with no request
+# id, so two turns at once interleave their tokens into both streams. Until the
+# bus carries a correlation id, one turn at a time is the correct behaviour.
+_TURN_LOCK = threading.Lock()
+TURN_TIMEOUT_SECONDS = 600.0
+
 
 def _sse(payload: dict) -> str:
   return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -140,6 +146,10 @@ def chat_stream(body: ChatStreamIn) -> StreamingResponse:
     bus = get_event_bus()
     events: queue.Queue[tuple[str, object]] = queue.Queue()
 
+    # Held for the whole turn: subscribing before the lock would pick up tokens
+    # belonging to a turn already in flight.
+    _TURN_LOCK.acquire()
+
     def on_token(payload) -> None:
       token = payload.get("token", "") if isinstance(payload, dict) else str(payload)
       events.put(("token", token))
@@ -152,9 +162,21 @@ def chat_stream(body: ChatStreamIn) -> StreamingResponse:
       message = payload.get("message", "The model failed") if isinstance(payload, dict) else str(payload)
       events.put(("error", message))
 
-    bus.subscribe(TOPIC_TOKEN, on_token)
-    bus.subscribe(TOPIC_COMPLETE, on_complete)
-    bus.subscribe(TOPIC_ERROR, on_error)
+    released = False
+
+    def release() -> None:
+      nonlocal released
+      if not released:
+        released = True
+        _TURN_LOCK.release()
+
+    try:
+      bus.subscribe(TOPIC_TOKEN, on_token)
+      bus.subscribe(TOPIC_COMPLETE, on_complete)
+      bus.subscribe(TOPIC_ERROR, on_error)
+    except Exception:  # noqa: BLE001 - never strand the lock
+      release()
+      raise
 
     def run() -> None:
       try:
@@ -174,7 +196,14 @@ def chat_stream(body: ChatStreamIn) -> StreamingResponse:
         events.put(("end", None))
 
     worker = threading.Thread(target=run, name="ultron-chat-stream", daemon=True)
-    worker.start()
+    try:
+      worker.start()
+    except Exception:  # noqa: BLE001 - never strand the lock
+      bus.unsubscribe(TOPIC_TOKEN, on_token)
+      bus.unsubscribe(TOPIC_COMPLETE, on_complete)
+      bus.unsubscribe(TOPIC_ERROR, on_error)
+      release()
+      raise
 
     user_payload = {
       "id": str(uuid.uuid4()),
@@ -247,7 +276,10 @@ def chat_stream(body: ChatStreamIn) -> StreamingResponse:
       bus.unsubscribe(TOPIC_TOKEN, on_token)
       bus.unsubscribe(TOPIC_COMPLETE, on_complete)
       bus.unsubscribe(TOPIC_ERROR, on_error)
-      worker.join(timeout=0.1)
+      # Join before releasing: a client that disconnects mid-turn must not let
+      # the next request start while this one is still emitting tokens.
+      worker.join(timeout=TURN_TIMEOUT_SECONDS)
+      release()
 
   return StreamingResponse(
     generate(),

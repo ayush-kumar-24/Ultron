@@ -111,6 +111,9 @@ def parse_task(text: str, *, now: datetime | None = None) -> ParsedTask:
       if meridiem == "am" and hour == 12:
         hour = 0
       target = target.replace(hour=hour, minute=minute, second=0, microsecond=0)
+      named_day = weekday_match or _RELATIVE_RE.search(lower)
+      if target <= moment and not named_day:
+        target = target + timedelta(days=1)
       due = target
     elif weekday_match or _RELATIVE_RE.search(lower):
       hour = 20 if _EVENING_RE.search(lower) else 9

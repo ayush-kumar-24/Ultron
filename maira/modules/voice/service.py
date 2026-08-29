@@ -82,13 +82,13 @@ class VoiceService(Voice):
       if self._status == VoiceStatus.SPEAKING or getattr(self._tts, "speaking", False):
         self._barge_in()
       if not self._audio.is_available():
-        self._publish_error("Maira can't access your microphone.")
+        self._publish_error("Ultron can't access your microphone.")
         return
       try:
         self._audio.start_recording()
       except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to start recording")
-        self._publish_error("Maira can't access your microphone.")
+        self._publish_error("Ultron can't access your microphone.")
         logger.debug("Mic start detail: {}", exc)
         return
       self._set_status(VoiceStatus.LISTENING)
@@ -138,7 +138,7 @@ class VoiceService(Voice):
       transcript = self._stt.transcribe(audio).strip()
     except Exception as exc:  # noqa: BLE001
       logger.exception("Dictation transcription failed")
-      self._publish_error("Maira can't access speech recognition right now.")
+      self._publish_error("Ultron can't access speech recognition right now.")
       logger.debug("Dictation STT detail: {}", exc)
       self._set_status(VoiceStatus.IDLE)
       return
@@ -291,7 +291,7 @@ class VoiceService(Voice):
       transcript = self._stt.transcribe(audio).strip()
     except Exception as exc:  # noqa: BLE001
       logger.exception("Transcription failed")
-      self._publish_error("Maira can't access speech recognition right now.")
+      self._publish_error("Ultron can't access speech recognition right now.")
       logger.debug("STT detail: {}", exc)
       self._set_status(VoiceStatus.IDLE)
       return False
@@ -328,7 +328,7 @@ class VoiceService(Voice):
       self._call_brain(transcript, voice_mode=voice_mode)
     except Exception as exc:  # noqa: BLE001
       logger.exception("Brain request from voice failed")
-      self._publish_error(str(exc) or "Maira can't reach the local AI model.")
+      self._publish_error(str(exc) or "Ultron can't reach the local AI model.")
       self._set_status(VoiceStatus.IDLE)
       return False
     reply = self._last_assistant_reply()
@@ -397,7 +397,7 @@ class VoiceService(Voice):
       self._call_brain(transcript, voice_mode=voice_mode)
     except Exception as exc:  # noqa: BLE001
       logger.exception("Brain request from voice failed")
-      self._publish_error(str(exc) or "Maira can't reach the local AI model.")
+      self._publish_error(str(exc) or "Ultron can't reach the local AI model.")
       self._set_status(VoiceStatus.IDLE)
       return False
     finally:

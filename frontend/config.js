@@ -13,7 +13,9 @@ window.ULTRON_CONFIG = {
 
   // Where the backend lives. '' = same origin (recommended when the backend serves this folder).
   // Examples: 'http://127.0.0.1:8000', 'https://api.ultron.local'
-  apiBaseUrl: 'http://127.0.0.1:8000',
+  // '' keeps every call on the origin serving this page, so the app also works
+  // when reached from another device or a different port.
+  apiBaseUrl: '',
 
   // Path prefix for REST + streaming endpoints, appended to apiBaseUrl.
   apiPrefix: '/api',
@@ -21,9 +23,10 @@ window.ULTRON_CONFIG = {
   // Health probe used by mode:'auto'.
   healthPath: '/system/health',
 
-  // Server-sent events endpoint for realtime (agent status, automations, notifications…).
+  // Server-sent events endpoint for realtime (automations firing, notifications,
+  // and the heartbeat that drives the online indicator).
   // Set to null to disable realtime; the UI degrades gracefully.
-  eventsPath: null,
+  eventsPath: '/stream',
 
   auth: {
     // 'bearer'  → Authorization: Bearer <token>, token read from localStorage[tokenKey]

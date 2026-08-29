@@ -14,6 +14,9 @@ from maira.core.domain.value_objects import Priority
 
 router = APIRouter(tags=["tasks"])
 
+MAX_TITLE = 500
+MAX_ESTIMATE_MINUTES = 24 * 60
+
 STAGES = ("todo", "in_progress", "done")
 _PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
@@ -42,6 +45,13 @@ def _moment(value: str | None) -> datetime | None:
   except ValueError as exc:
     raise HTTPException(status_code=400, detail=f"Invalid date '{value}'") from exc
   return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _estimate(value: int | None) -> int:
+  """Minutes, kept sane: no negative or week-long single tasks."""
+  if value is None:
+    return 30
+  return max(0, min(int(value), MAX_ESTIMATE_MINUTES))
 
 
 def _end_of_today() -> datetime:
@@ -87,7 +97,7 @@ def parse(body: TaskParseIn) -> dict:
 
 @router.post("/tasks", status_code=201)
 def create_task(body: TaskCreate) -> dict:
-  if body.text:
+  if body.text and body.text.strip():
     parsed = parse_task(body.text)
     title = parsed.title
     priority = _priority(body.priority or parsed.priority)
@@ -104,13 +114,13 @@ def create_task(body: TaskCreate) -> dict:
     project_id = body.projectId
 
   task = get_tasks().create(
-    title,
+    title[:MAX_TITLE],
     priority=priority,
     due_at=due_at,
-    description=body.description or "",
+    description=(body.description or "")[:5000],
     project_id=project_id,
-    tags=body.tags or [],
-    estimate=body.estimate or 30,
+    tags=[str(tag)[:40] for tag in (body.tags or [])][:12],
+    estimate=_estimate(body.estimate),
     recurrence=recurrence,
   )
   return task_to_api(task)
@@ -120,15 +130,15 @@ def create_task(body: TaskCreate) -> dict:
 def update_task(task_id: str, body: TaskPatch) -> dict:
   task = get_tasks().update_task(
     task_id,
-    title=body.title,
-    description=body.description,
+    title=body.title[:MAX_TITLE] if body.title else None,
+    description=body.description[:5000] if body.description else None,
     priority=_priority(body.priority) if body.priority else None,
     stage=_stage(body.status) if body.status else None,
     due_at=_moment(body.due),
     clear_due=body.due is not None and not body.due,
     project_id=body.projectId,
-    tags=body.tags,
-    estimate=body.estimate,
+    tags=[str(tag)[:40] for tag in body.tags][:12] if body.tags is not None else None,
+    estimate=_estimate(body.estimate) if body.estimate is not None else None,
   )
   if task is None:
     raise HTTPException(status_code=404, detail="Task not found")

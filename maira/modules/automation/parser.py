@@ -152,7 +152,7 @@ def parse_schedule_request(
   confirmation = (
     f"Ho gaya — \"{title}\" schedule kar diya hai for {when_label}. "
     f"Automations tab mein dikhega. "
-    f"Maira open rahe toh usi time pe chalega."
+    f"Ultron chalu rahe toh usi time pe chalega."
   )
   return ParsedSchedule(
     title=title,

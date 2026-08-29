@@ -207,13 +207,15 @@ def test_activity_stream_forwards_bus_events() -> None:
   frames = stream.frames()
 
   assert _json.loads(next(frames).split("data: ", 1)[1])["type"] == "ready"
+  # An opening heartbeat carries the model's availability to the UI.
+  assert _json.loads(next(frames).split("data: ", 1)[1])["type"] == "heartbeat"
 
   bus.publish("automation.notify", {"message": "tea time"})
   payload = _json.loads(next(frames).split("data: ", 1)[1])
   assert payload == {"type": "automation", "payload": {"message": "tea time"}}
 
-  # An idle connection is held open with a comment heartbeat.
-  assert next(frames).startswith(": keep-alive")
+  # An idle connection keeps reporting availability.
+  assert _json.loads(next(frames).split("data: ", 1)[1])["type"] == "heartbeat"
   frames.close()
   assert bus._handlers["automation.notify"] == []  # noqa: SLF001 - unsubscribed
 

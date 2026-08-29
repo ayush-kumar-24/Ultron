@@ -14,7 +14,7 @@ from collections.abc import Iterator
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from maira.api.deps import get_event_bus
+from maira.api.deps import get_event_bus, get_llm
 
 router = APIRouter(tags=["stream"])
 
@@ -31,8 +31,16 @@ def _frame(event_type: str, payload: dict) -> str:
 class ActivityStream:
   """Fans event-bus topics into SSE frames for one browser connection."""
 
-  def __init__(self, bus, *, topics: tuple[str, ...] = TOPICS, heartbeat: float = HEARTBEAT_SECONDS) -> None:
+  def __init__(
+    self,
+    bus,
+    *,
+    topics: tuple[str, ...] = TOPICS,
+    heartbeat: float = HEARTBEAT_SECONDS,
+    probe=None,
+  ) -> None:
     self._bus = bus
+    self._probe = probe
     self._topics = topics
     self._heartbeat = heartbeat
     self._events: queue.Queue[tuple[str, dict]] = queue.Queue(maxsize=QUEUE_MAX)
@@ -62,20 +70,32 @@ class ActivityStream:
     self.subscribe()
     try:
       yield _frame("ready", {"topics": list(self._topics)})
+      yield _frame("heartbeat", self._heartbeat_payload())
       while stop is None or not stop.is_set():
         try:
           topic, payload = self._events.get(timeout=self._heartbeat)
         except queue.Empty:
-          yield ": keep-alive\n\n"
+          # The UI trusts heartbeats for its online indicator, so an idle
+          # connection reports whether the model is actually reachable.
+          yield _frame("heartbeat", self._heartbeat_payload())
           continue
         yield _frame(topic.split(".")[0], payload)
     finally:
       self.close()
 
+  def _heartbeat_payload(self) -> dict:
+    if self._probe is None:
+      return {"online": True}
+    try:
+      return {"online": bool(self._probe())}
+    except Exception:  # noqa: BLE001 - a heartbeat must never break the stream
+      return {"online": False}
+
 
 @router.get("/stream")
 def stream() -> StreamingResponse:
-  activity = ActivityStream(get_event_bus())
+  llm = get_llm()
+  activity = ActivityStream(get_event_bus(), probe=lambda: llm.is_available())
   return StreamingResponse(
     activity.frames(),
     media_type="text/event-stream",
