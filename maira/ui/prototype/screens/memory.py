@@ -62,7 +62,7 @@ class MemoryScreen(QWidget):
     root.setSpacing(16)
 
     top = QHBoxLayout()
-    top.addWidget(PageHeader("Memory", "What Maira remembers about you"))
+    top.addWidget(PageHeader("Memory", "What Ultron remembers about you"))
     top.addStretch(1)
     self.add_btn = QPushButton("+ Add Memory")
     self.add_btn.setObjectName("GhostButton")
@@ -99,7 +99,7 @@ class MemoryScreen(QWidget):
 
     self.empty = EmptyState(
       "Nothing here yet.",
-      "As you use Maira, important information will appear here.",
+      "As you use Ultron, important information will appear here.",
     )
     root.addWidget(self.empty)
     self.empty.hide()
@@ -145,7 +145,7 @@ class MemoryScreen(QWidget):
     )
     meta.setObjectName("Secondary")
     self.detail_layout.addWidget(meta)
-    remember = QLabel("Maira remembers:")
+    remember = QLabel("Ultron remembers:")
     remember.setObjectName("SectionLabel")
     self.detail_layout.addWidget(remember)
     body = QLabel(mem.get("body", ""))

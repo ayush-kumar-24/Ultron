@@ -23,39 +23,63 @@ from maira.ui.prototype.theme import tokens as t
 
 
 class ChatBubble(QFrame):
+  _USER_MAX_WIDTH = 560
+  _ASSISTANT_MAX_WIDTH = 680
+  _MARGIN_H = 14
+  _SPACING = 12
+
   def __init__(self, role: str, content: str, parent=None) -> None:
     super().__init__(parent)
     self.setObjectName("Card" if role == "assistant" else "ElevatedCard")
     layout = QHBoxLayout(self)
-    layout.setContentsMargins(14, 12, 14, 12)
-    layout.setSpacing(12)
+    layout.setContentsMargins(self._MARGIN_H, 12, self._MARGIN_H, 12)
+    layout.setSpacing(self._SPACING)
 
+    logo_space = 0
     if role == "assistant":
       logo = MairaLogo(size="small", glowing=False)
       layout.addWidget(logo, alignment=Qt.AlignmentFlag.AlignTop)
+      logo_space = max(logo.sizeHint().width(), logo.minimumWidth()) + self._SPACING
 
     col = QVBoxLayout()
     if role == "assistant":
-      name = QLabel("Maira")
+      name = QLabel("Ultron")
       name.setStyleSheet(f"color: {t.TEXT_MUTED}; font-size: 11px;")
       col.addWidget(name)
     self.body = QLabel(visible_text(content) if role == "user" else content)
     self.body.setWordWrap(True)
+    self.body.setTextFormat(Qt.TextFormat.PlainText)
     self.body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     self.body.setStyleSheet(f"color: {t.TEXT_PRIMARY}; font-size: 14px; line-height: 1.45;")
     col.addWidget(self.body)
     layout.addLayout(col, stretch=1)
 
     if role == "user":
-      self.setMaximumWidth(560)
+      self.setMaximumWidth(self._USER_MAX_WIDTH)
+      self._max_text_width = self._USER_MAX_WIDTH - 2 * self._MARGIN_H
     else:
-      self.setMaximumWidth(680)
+      self.setMaximumWidth(self._ASSISTANT_MAX_WIDTH)
+      self._max_text_width = self._ASSISTANT_MAX_WIDTH - 2 * self._MARGIN_H - logo_space
+    self._fit_text()
 
   def set_content(self, text: str) -> None:
     self.body.setText(text)
+    self._fit_text()
 
   def append_content(self, token: str) -> None:
     self.body.setText(self.body.text() + token)
+    self._fit_text()
+
+  def _fit_text(self) -> None:
+    # A word-wrapped QLabel in an aligned layout gets its one-line size hint,
+    # which clips long messages. Size the label from its text instead.
+    self.body.ensurePolished()
+    metrics = self.body.fontMetrics()
+    lines = self.body.text().split("\n") or [""]
+    natural = max(metrics.horizontalAdvance(line) for line in lines) + 2
+    width = max(1, min(natural, self._max_text_width))
+    self.body.setFixedWidth(width)
+    self.body.setFixedHeight(self.body.heightForWidth(width))
 
 
 class VoiceStage(QWidget):
@@ -120,7 +144,7 @@ class ChatScreen(QWidget):
     root.setSpacing(12)
 
     header_row = QHBoxLayout()
-    self.header = PageHeader("Chat", "Private conversation with Maira")
+    self.header = PageHeader("Chat", "Private conversation with Ultron")
     self._title_label = self.header.findChildren(QLabel)[0]
     header_row.addWidget(self.header)
     header_row.addStretch(1)
@@ -152,7 +176,7 @@ class ChatScreen(QWidget):
     self.scroll.setWidget(self.thread)
     chat_layout.addWidget(self.scroll, stretch=1)
 
-    self.thinking = QLabel("Maira is thinking...")
+    self.thinking = QLabel("Ultron is thinking...")
     self.thinking.setObjectName("Muted")
     self.thinking.hide()
     chat_layout.addWidget(self.thinking)
@@ -168,7 +192,7 @@ class ChatScreen(QWidget):
     root.addWidget(self.stage, stretch=1)
 
     self.input = CommandInput(compact=True)
-    self.input.set_placeholder("Message Maira...")
+    self.input.set_placeholder("Message Ultron...")
     self.input.submitted.connect(self._on_submit)
     self.input.voice_clicked.connect(self._on_mic)
     self.input.notice.connect(self.store.toast.emit)
@@ -213,7 +237,7 @@ class ChatScreen(QWidget):
 
   def show_error(self, title: str, body: str | None = None) -> None:
     if body is None:
-      self.error.show_error("Maira hit a problem.", title)
+      self.error.show_error("Ultron hit a problem.", title)
     else:
       self.error.show_error(title, body)
 
@@ -334,7 +358,7 @@ class ChatScreen(QWidget):
       self._voice_mode = False
       self.voice_toggled.emit(False)
     self.stage.setCurrentWidget(self.chat_page)
-    self.input.set_placeholder("Message Maira...")
+    self.input.set_placeholder("Message Ultron...")
     self.input.mic_btn.set_active(False)
     self._dictating = False
 
@@ -353,7 +377,7 @@ class ChatScreen(QWidget):
     if active:
       self.input.set_placeholder("Listening… tap mic again when done")
     else:
-      self.input.set_placeholder("Message Maira...")
+      self.input.set_placeholder("Message Ultron...")
 
   def set_placeholder_listening(self, active: bool) -> None:
     if active:

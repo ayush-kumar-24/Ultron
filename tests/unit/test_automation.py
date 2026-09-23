@@ -126,3 +126,49 @@ def test_parse_open_youtube_at() -> None:
 
 def test_non_schedule_returns_none() -> None:
   assert parse_schedule_request("what is recursion?") is None
+
+
+@pytest.mark.parametrize(
+  ("text", "title", "message"),
+  [
+    ("remind me in 1 minute to drink water", "Drink water", "drink water"),
+    ("remind me to drink water in 1 minute", "Drink water", "drink water"),
+    ("remind me to call mom at 6pm", "Call mom", "call mom"),
+    ("yaad dila dena 5 min baad paani peena", "Paani peena", "paani peena"),
+    ("every day at 8am remind me to take vitamins", "Take vitamins", "take vitamins"),
+    ("remind me in 10 minutes to go to gym", "Go to gym", "go to gym"),
+    ("remind me to open youtube at 9pm", "Open youtube", "open youtube"),
+    ("drink water in 10 minutes", "Drink water", "drink water"),
+  ],
+)
+def test_reminders_become_notifications_not_ai_tasks(text: str, title: str, message: str) -> None:
+  import json
+
+  now = datetime(2026, 9, 23, 7, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
+  parsed = parse_schedule_request(text, now=now)
+  assert parsed is not None
+  assert parsed.action_type == AutomationActionType.NOTIFY
+  assert parsed.title == title
+  assert json.loads(parsed.action_payload) == {"message": message}
+  assert "reminder" in parsed.confirmation
+
+
+def test_dangling_to_falls_back_to_plain_reminder() -> None:
+  now = datetime(2026, 9, 23, 7, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
+  parsed = parse_schedule_request("remind me at 9pm to", now=now)
+  assert parsed is not None
+  assert parsed.title == "Reminder"
+
+
+def test_explicit_schedule_still_runs_ai_task() -> None:
+  now = datetime(2026, 9, 23, 7, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
+  parsed = parse_schedule_request("schedule summarize my notes tomorrow at 9am", now=now)
+  assert parsed is not None
+  assert parsed.action_type == AutomationActionType.AGENT
+
+
+def test_open_at_time_still_opens() -> None:
+  now = datetime(2026, 9, 23, 7, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
+  parsed = parse_schedule_request("open youtube at 9pm", now=now)
+  assert parsed is not None
+  assert parsed.action_type == AutomationActionType.OPEN_URL
