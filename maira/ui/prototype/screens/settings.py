@@ -209,7 +209,7 @@ class SettingsScreen(QWidget):
         panel = QLabel(str(snap))
         panel.setObjectName("Muted")
         panel.setWordWrap(True)
-        form.addRow("MAIRA SYSTEM", panel)
+        form.addRow("ULTRON SYSTEM", panel)
       form.addRow("", offline)
       form.addRow("", online)
       form.addRow("", err)
