@@ -25,6 +25,7 @@ pip install -e ".[desktop]"
 - **Chat** — local LLM (Hinglish-friendly companion prompt)
 - **Dictate** — Chat mic / Alt+V / hold Ctrl+Shift+V (speech → text, no TTS required)
 - **Tasks & notes from chat or voice** — `add task pay bill tomorrow`, `task: call mom at 6pm urgent`, `what's pending`, `aaj ke tasks`, `done 2`, `pay bill ho gaya`, `delete task milk`, `note: call Rahul about project`
+- **Daily briefing** — every morning (default 8:00) Ultron posts today's plan in chat, shows a notification and speaks a short summary: overdue items, today's tasks, reminders, and what to do first. Ask any time: `plan my day`, `aaj ka plan`. Set the time and your name under `briefing:` in the config.
 - **Automations** — schedule from chat (`remind me in 2 minutes`, `open youtube at 9pm`)
 - **Runs in the background** — closing the window hides Ultron to the system tray; reminders keep firing. Quit from the tray menu.
 - **Reminder pop-ups** — Windows notifications with **Done** / **Snooze** (10 min) buttons; missed reminders say when they were due

@@ -1,5 +1,7 @@
 """Brain facade — primary entry point for chat and reasoning requests."""
 
+import threading
+
 from loguru import logger
 
 from maira.core.bus.event_bus import EventBus
@@ -23,6 +25,7 @@ from maira.modules.brain.context import (
 from maira.modules.brain.conversation import ConversationSession
 from maira.modules.brain.streaming import TokenStreamer
 from maira.modules.memory.worker import MemoryWorker
+from maira.modules.planner.briefing import BriefingService
 from maira.modules.planner.chat import PlannerChat
 from maira.shared.utils.latency import begin_trace, clear_trace, current_trace
 
@@ -75,7 +78,11 @@ class BrainService(Brain):
     self._recall_mode = recall_mode if recall_mode in {"keyword", "semantic"} else "keyword"
     self._automation = automation
     self._desktop = desktop
-    self._planner_chat = PlannerChat(planner) if planner is not None else None
+    self._planner_chat = (
+      PlannerChat(planner, BriefingService(planner, automation)) if planner is not None else None
+    )
+    # One message at a time: chat, voice and announcements share one session.
+    self._turn_lock = threading.RLock()
     self._conversation = self._load_or_create_conversation()
 
   def _load_or_create_conversation(self) -> Conversation:
@@ -94,6 +101,27 @@ class BrainService(Brain):
     *,
     voice: bool = False,
     max_tokens: int | None = None,
+  ) -> None:
+    with self._turn_lock:
+      self._send_message(text, voice=voice, max_tokens=max_tokens)
+
+  def announce(self, text: str) -> None:
+    """Post an assistant message nobody asked for (e.g. the daily briefing)."""
+    reply = text.strip()
+    if not reply:
+      return
+    with self._turn_lock:
+      assistant_message = self._session.add_assistant_message(reply)
+      self._repo.add_message(self._conversation.id, assistant_message)
+      self._streamer.publish_token(reply)
+      self._streamer.publish_complete(reply)
+
+  def _send_message(
+    self,
+    text: str,
+    *,
+    voice: bool,
+    max_tokens: int | None,
   ) -> None:
     cleaned = text.strip()
     if not cleaned:

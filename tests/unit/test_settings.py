@@ -42,6 +42,10 @@ def test_load_settings_defaults() -> None:
   assert settings.notifications.enabled is True
   assert settings.notifications.windows_toast is True
   assert settings.notifications.snooze_minutes == 10
+  assert settings.briefing.enabled is True
+  assert settings.briefing.time == "08:00"
+  assert settings.briefing.until == "12:00"
+  assert settings.briefing.speak is True
 
 
 def test_deep_merge_nested() -> None:

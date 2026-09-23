@@ -192,6 +192,25 @@ class VoiceService(Voice):
       pass
     self._set_status(VoiceStatus.IDLE)
 
+  def announce(self, text: str) -> bool:
+    """Speak text in the background (e.g. the daily briefing).
+
+    Skipped when voice is unavailable or the user is mid-conversation.
+    """
+    if not text.strip() or not self._tts.is_available() or not self._audio.is_available():
+      return False
+    if self._status != VoiceStatus.IDLE or self._conversation_active:
+      return False
+
+    def _speak() -> None:
+      try:
+        self._tts.speak(text)
+      except Exception:  # noqa: BLE001
+        logger.exception("Announcement speech failed")
+
+    threading.Thread(target=_speak, name="ultron-announce", daemon=True).start()
+    return True
+
   def stop_speaking(self) -> None:
     self._interrupt_playback()
     if self._status in (VoiceStatus.SPEAKING, VoiceStatus.INTERRUPTED):

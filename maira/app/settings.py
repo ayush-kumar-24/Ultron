@@ -89,6 +89,15 @@ class NotificationSettings:
 
 
 @dataclass(frozen=True)
+class BriefingSettings:
+  enabled: bool
+  time: str  # "HH:MM", local time
+  until: str  # after this, skip today's automatic briefing
+  speak: bool
+  name: str  # used in the greeting
+
+
+@dataclass(frozen=True)
 class Settings:
   app: AppSettings
   paths: PathSettings
@@ -99,6 +108,7 @@ class Settings:
   desktop: DesktopSettings
   background: BackgroundSettings
   notifications: NotificationSettings
+  briefing: BriefingSettings
 
   @property
   def app_name(self) -> str:
@@ -119,6 +129,7 @@ def load_settings() -> Settings:
   desktop_raw = merged.get("desktop", {})
   background_raw = merged.get("background", {})
   notifications_raw = merged.get("notifications", {})
+  briefing_raw = merged.get("briefing", {})
   stt_raw = voice_raw.get("stt", {}) if isinstance(voice_raw.get("stt"), dict) else {}
   tts_raw = voice_raw.get("tts", {}) if isinstance(voice_raw.get("tts"), dict) else {}
   behavior_raw = voice_raw.get("behavior", {}) if isinstance(voice_raw.get("behavior"), dict) else {}
@@ -211,5 +222,12 @@ def load_settings() -> Settings:
       enabled=bool(notifications_raw.get("enabled", True)),
       windows_toast=bool(notifications_raw.get("windows_toast", True)),
       snooze_minutes=max(1, int(notifications_raw.get("snooze_minutes", 10))),
+    ),
+    briefing=BriefingSettings(
+      enabled=bool(briefing_raw.get("enabled", True)),
+      time=str(briefing_raw.get("time", "08:00")),
+      until=str(briefing_raw.get("until", "12:00")),
+      speak=bool(briefing_raw.get("speak", True)),
+      name=str(briefing_raw.get("name") or ""),
     ),
   )

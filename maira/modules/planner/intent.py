@@ -24,6 +24,7 @@ class PlannerAction(str, Enum):
   COMPLETE_TASK = "complete_task"
   DELETE_TASK = "delete_task"
   ADD_NOTE = "add_note"
+  BRIEFING = "briefing"
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,17 @@ _NOTE_PATTERNS = [
   re.compile(r"^note\s+(?:down\s+|kar\s+lo\s+|karo\s+)(?P<t>.+)$", _F),
 ]
 
+_BRIEFING_PATTERNS = [
+  re.compile(r"^(?:please\s+)?(?:plan|organi[sz]e)\s+(?:my|the)\s+day(?:\s+for\s+me)?$", _F),
+  re.compile(r"^(?:give\s+me\s+)?(?:my\s+|the\s+)?(?:daily\s+|morning\s+|today'?s\s+)?(?:briefing|brief|day\s+plan|plan\s+for\s+today)$", _F),
+  re.compile(r"^brief\s+me$", _F),
+  re.compile(r"^(?:what(?:'s|\s+is|s)|how(?:'s|\s+is|s))\s+my\s+day(?:\s+(?:today|looking|look\s+like|looking\s+like))*$", _F),
+  re.compile(r"^what(?:'s|\s+is|s)?\s+(?:on\s+)?(?:my\s+)?(?:plan|schedule|agenda)(?:\s+for)?(?:\s+today)?$", _F),
+  re.compile(r"^(?:aaj|din)\s+ka\s+(?:plan|schedule)(?:\s+(?:kya\s+hai|batao|dikhao|bana\s*do))?$", _F),
+  re.compile(r"^(?:mera\s+)?(?:aaj\s+ka\s+)?din\s+(?:kaisa\s+hai|plan\s+karo)$", _F),
+  re.compile(r"^aaj\s+kya\s+(?:karna\s+hai|hai|plan\s+hai)$", _F),
+]
+
 _PRIORITY_HIGH = re.compile(r"\b(urgent|asap|important|high\s+priority|zaruri|zaroori)\b", _F)
 _PRIORITY_LOW = re.compile(r"\b(low\s+priority|someday|whenever|kabhi\s+bhi)\b", _F)
 _TODAY_WORD = re.compile(r"\b(today|aaj)\b", _F)
@@ -110,6 +122,10 @@ def parse_planner_request(text: str, *, now: datetime | None = None) -> PlannerI
   if not cleaned:
     return None
   moment = (now or datetime.now(LOCAL_TZ)).astimezone(LOCAL_TZ)
+
+  for pattern in _BRIEFING_PATTERNS:
+    if pattern.match(cleaned):
+      return PlannerIntent(PlannerAction.BRIEFING)
 
   for pattern in _NOTE_PATTERNS:
     match = pattern.match(cleaned)

@@ -83,6 +83,12 @@ class NotificationService:
     self._show(notification)
     return notification
 
+  def announce(self, title: str, body: str) -> str | None:
+    """Informational notification (no buttons); clicking it opens Ultron."""
+    notification = Notification(id=uuid.uuid4().hex, title=title, body=body)
+    self._track(notification)
+    return self._show(notification)
+
   def send_test(self) -> str | None:
     """Show a sample notification. Returns the backend that showed it."""
     notification = Notification(

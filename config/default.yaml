@@ -97,3 +97,14 @@ notifications:
   enabled: true
   windows_toast: true
   snooze_minutes: 10
+
+# Daily briefing: today's tasks, overdue items and reminders.
+# Shown once a day at `time` (or when Ultron starts later, until `until`).
+# Ask any time in chat: "plan my day" / "aaj ka plan".
+briefing:
+  enabled: true
+  time: "08:00"
+  until: "12:00"
+  speak: true
+  # Your name for the greeting ("Good morning, Ayush!")
+  name: ""

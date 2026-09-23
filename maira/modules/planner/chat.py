@@ -10,6 +10,7 @@ from maira.core.domain.entities import Task
 from maira.core.domain.value_objects import Priority, TaskStatus
 from maira.core.interfaces.planner import Planner
 from maira.modules.automation.parser import LOCAL_TZ
+from maira.modules.planner.briefing import BriefingService
 from maira.modules.planner.intent import (
   PlannerAction,
   PlannerIntent,
@@ -66,8 +67,9 @@ def _tokens(text: str) -> set[str]:
 
 
 class PlannerChat:
-  def __init__(self, planner: Planner) -> None:
+  def __init__(self, planner: Planner, briefing: BriefingService | None = None) -> None:
     self._planner = planner
+    self._briefing = briefing or BriefingService(planner)
     self._last_listing: list[str] = []  # task ids in the order last shown
 
   def handle(self, text: str, *, now: datetime | None = None) -> PlannerReply | None:
@@ -75,6 +77,8 @@ class PlannerChat:
     intent = parse_planner_request(text, now=moment)
     if intent is None:
       return None
+    if intent.action == PlannerAction.BRIEFING:
+      return PlannerReply(self._briefing.build(moment).text, changed=False)
     if intent.action == PlannerAction.ADD_TASK:
       return self._add(intent, moment)
     if intent.action == PlannerAction.LIST_TASKS:

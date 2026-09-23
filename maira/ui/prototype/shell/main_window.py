@@ -332,9 +332,11 @@ class PrototypeWindow(QMainWindow):
       chat._mock_send(display)  # noqa: SLF001
 
   def _quick_action(self, action_id: str) -> None:
+    if action_id == "plan":
+      self._home_command("Plan my day")
+      return
     mapping = {
       "workspace": ("automations", "Opening Morning Workspace (mock)"),
-      "plan": ("tasks", "Planning your day (mock)"),
       "search": (None, None),
       "pending": ("tasks", "Here's what's pending"),
     }
@@ -348,9 +350,11 @@ class PrototypeWindow(QMainWindow):
       self.store.toast.emit(toast)
 
   def _run_command(self, cmd_id: str) -> None:
+    if cmd_id == "plan":
+      self._home_command("Plan my day")
+      return
     routes = {
       "workspace": "automations",
-      "plan": "tasks",
       "memory": "memory",
       "task": "tasks",
       "note": "notes",

@@ -45,6 +45,9 @@ from maira.modules.memory.policy import MemoryPolicy
 from maira.modules.memory.service import MemoryService
 from maira.modules.memory.worker import MemoryWorker
 from maira.modules.notifications.service import NotificationService
+from maira.modules.planner.briefing import Briefing, BriefingService
+from maira.modules.planner.briefing.runner import BriefingRunner
+from maira.modules.planner.briefing.schedule import BriefingSchedule, parse_clock
 from maira.modules.planner.service import PlannerService
 from maira.modules.voice.service import VoiceService
 from maira.modules.voice.stt import SpeechToText
@@ -351,6 +354,36 @@ def _setup_background(
   return tray
 
 
+def _setup_briefing(container: Container, settings: Settings, lifecycle: Lifecycle) -> None:
+  """Show the daily briefing once a day in chat, as a notification, and aloud."""
+  if not settings.briefing.enabled:
+    return
+  from datetime import time  # noqa: PLC0415
+
+  briefing = BriefingService(
+    container.resolve("planner"), container.resolve("automation"), name=settings.briefing.name
+  )
+  schedule = BriefingSchedule(
+    data_dir() / "briefing_state.json",
+    at=parse_clock(settings.briefing.time, time(8, 0)),
+    until=parse_clock(settings.briefing.until, time(12, 0)),
+  )
+  notifications: NotificationService = container.resolve("notifications")
+
+  def deliver(item: Briefing) -> None:
+    brain = container.resolve("brain")
+    # Off the UI thread: the brain waits if a chat reply is still streaming.
+    threading.Thread(target=brain.announce, args=(item.text,), name="ultron-briefing", daemon=True).start()
+    notifications.announce("Aaj ka plan", item.summary)
+    if settings.briefing.speak:
+      container.resolve("voice").announce(item.speech)
+
+  runner = BriefingRunner(briefing, schedule, deliver)
+  runner.start()
+  lifecycle.on_shutdown(runner.stop)
+  container.register_instance("briefing_runner", runner)
+
+
 def bootstrap(argv: list[str] | None = None) -> AppContext | None:
   """Build the app. Returns None when another instance is already running."""
   args = list(sys.argv[1:] if argv is None else argv)
@@ -375,6 +408,7 @@ def bootstrap(argv: list[str] | None = None) -> AppContext | None:
   window = MainWindow(container=container, skip_onboarding=True)
   tray = _setup_background(qt_app, container, settings, window, lifecycle)
   guard.activation_requested.connect(window.bring_to_front)
+  _setup_briefing(container, settings, lifecycle)
 
   start_hidden = tray is not None and (background or settings.background.start_minimized)
   if not start_hidden:
