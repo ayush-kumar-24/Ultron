@@ -102,7 +102,7 @@ def test_brain_service_includes_system_prompt_and_limits_history(repo: Conversat
     brain.send_message(f"msg-{index}")
   last_call = llm.calls[-1]
   assert last_call[0]["role"] == "system"
-  assert "You are Maira" in last_call[0]["content"]
+  assert "You are Ultron" in last_call[0]["content"]
   # system + last 4 conversation messages
   assert len(last_call) == 5
 
