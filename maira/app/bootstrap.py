@@ -383,6 +383,12 @@ def _setup_briefing(
     if settings.briefing.speak:
       container.resolve("voice").announce(item.speech)
 
+  if settings.briefing.speak:
+    # "plan my day" in chat or the Home button: speak the short version too.
+    container.resolve("event_bus").subscribe(
+      "briefing.requested",
+      lambda payload: container.resolve("voice").announce(str(payload.get("speech", ""))),
+    )
   if tray is not None:
     # Tray → "Today's plan": show and speak it now, any time of day.
     tray.briefing_requested.connect(lambda: deliver(briefing.build()))

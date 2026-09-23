@@ -276,3 +276,13 @@ def test_voice_announce_after_error_and_while_busy(voice_stack) -> None:
   assert voice.announce("hello") is True
   voice._status = VoiceStatus.LISTENING  # noqa: SLF001
   assert voice.announce("hello") is False
+
+
+def test_plan_my_day_in_chat_requests_speech(storage, planner) -> None:
+  bus = EventBus()
+  spoken: list = []
+  bus.subscribe("briefing.requested", lambda p: spoken.append(p["speech"]))
+  brain = BrainService(FakeLLM(), bus, ConversationRepository(storage), planner=planner)
+  brain.send_message("plan my day")
+  brain.send_message("what's pending")
+  assert len(spoken) == 1 and spoken[0].startswith("Good")

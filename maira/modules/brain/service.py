@@ -247,6 +247,8 @@ class BrainService(Brain):
     self._reply_locally(cleaned, reply.text)
     if reply.changed:
       self._bus.publish("planner.changed", {"reason": "chat"})
+    if reply.speech:
+      self._bus.publish("briefing.requested", {"speech": reply.speech})
     logger.info("Planner from chat: {}", reply.text.splitlines()[0])
     return True
 

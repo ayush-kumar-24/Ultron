@@ -26,6 +26,7 @@ _MAX_LISTED = 15
 class PlannerReply:
   text: str
   changed: bool  # tasks or notes were modified
+  speech: str = ""  # short spoken version (the briefing)
 
 
 def format_due(due: datetime | None, now: datetime) -> str:
@@ -78,7 +79,8 @@ class PlannerChat:
     if intent is None:
       return None
     if intent.action == PlannerAction.BRIEFING:
-      return PlannerReply(self._briefing.build(moment).text, changed=False)
+      briefing = self._briefing.build(moment)
+      return PlannerReply(briefing.text, changed=False, speech=briefing.speech)
     if intent.action == PlannerAction.ADD_TASK:
       return self._add(intent, moment)
     if intent.action == PlannerAction.LIST_TASKS:
