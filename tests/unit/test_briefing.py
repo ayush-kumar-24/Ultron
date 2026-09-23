@@ -266,3 +266,13 @@ def test_notification_announce(automation) -> None:
 
 
 from tests.unit.test_voice_service import voice_stack  # noqa: E402, F401  (fixture)
+
+
+def test_voice_announce_after_error_and_while_busy(voice_stack) -> None:
+  from maira.core.interfaces.voice import VoiceStatus
+
+  voice, _brain, _audio, _stt, tts, _events = voice_stack
+  voice._status = VoiceStatus.ERROR  # noqa: SLF001 — a past failure must not block speech
+  assert voice.announce("hello") is True
+  voice._status = VoiceStatus.LISTENING  # noqa: SLF001
+  assert voice.announce("hello") is False

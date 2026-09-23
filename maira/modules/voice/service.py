@@ -197,10 +197,25 @@ class VoiceService(Voice):
 
     Skipped when voice is unavailable or the user is mid-conversation.
     """
-    if not text.strip() or not self._tts.is_available() or not self._audio.is_available():
+    if not text.strip():
       return False
-    if self._status != VoiceStatus.IDLE or self._conversation_active:
+    if not self._tts.is_available():
+      logger.warning('Not speaking: voice model unavailable (pip install -e ".[voice]")')
       return False
+    if not self._audio.is_available():
+      logger.warning("Not speaking: no audio output (sounddevice missing or no speaker)")
+      return False
+    busy = {
+      VoiceStatus.LISTENING,
+      VoiceStatus.TRANSCRIBING,
+      VoiceStatus.THINKING,
+      VoiceStatus.PROCESSING,
+      VoiceStatus.SPEAKING,
+    }
+    if self._status in busy or self._conversation_active:
+      logger.info("Not speaking: voice is busy ({})", self._status.value)
+      return False
+    logger.info("Speaking announcement ({} chars)", len(text))
 
     def _speak() -> None:
       try:
