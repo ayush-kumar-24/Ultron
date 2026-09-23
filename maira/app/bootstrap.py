@@ -32,6 +32,7 @@ from maira.infrastructure.persistence.sqlite.repositories import (
 )
 from maira.infrastructure.speech.audio.stream import AudioStream
 from maira.infrastructure.speech.kokoro.engine import KokoroEngine
+from maira.infrastructure.speech.windows.sapi import WindowsSpeech
 from maira.infrastructure.speech.whisper.engine import WhisperEngine
 from maira.infrastructure.vector.chromadb.collections import ChromaVectorStore
 from maira.modules.automation.executor import AutomationExecutor
@@ -262,6 +263,7 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
       chunk_max_chars=settings.voice.chunk_max_chars,
       interrupt_on_speech=settings.voice.interrupt_on_speech,
       auto_speak=settings.voice.auto_speak,
+      announcement_fallback=WindowsSpeech(),
     )
     lifecycle.on_shutdown(voice.shutdown)
 
@@ -354,10 +356,13 @@ def _setup_background(
   return tray
 
 
-def _setup_briefing(container: Container, settings: Settings, lifecycle: Lifecycle) -> None:
+def _setup_briefing(
+  container: Container,
+  settings: Settings,
+  lifecycle: Lifecycle,
+  tray: TrayController | None,
+) -> None:
   """Show the daily briefing once a day in chat, as a notification, and aloud."""
-  if not settings.briefing.enabled:
-    return
   from datetime import time  # noqa: PLC0415
 
   briefing = BriefingService(
@@ -378,6 +383,11 @@ def _setup_briefing(container: Container, settings: Settings, lifecycle: Lifecyc
     if settings.briefing.speak:
       container.resolve("voice").announce(item.speech)
 
+  if tray is not None:
+    # Tray → "Today's plan": show and speak it now, any time of day.
+    tray.briefing_requested.connect(lambda: deliver(briefing.build()))
+  if not settings.briefing.enabled:
+    return
   runner = BriefingRunner(briefing, schedule, deliver)
   runner.start()
   lifecycle.on_shutdown(runner.stop)
@@ -408,7 +418,7 @@ def bootstrap(argv: list[str] | None = None) -> AppContext | None:
   window = MainWindow(container=container, skip_onboarding=True)
   tray = _setup_background(qt_app, container, settings, window, lifecycle)
   guard.activation_requested.connect(window.bring_to_front)
-  _setup_briefing(container, settings, lifecycle)
+  _setup_briefing(container, settings, lifecycle, tray)
 
   start_hidden = tray is not None and (background or settings.background.start_minimized)
   if not start_hidden:

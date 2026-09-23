@@ -41,6 +41,7 @@ class VoiceService(Voice):
     chunk_max_chars: int = 160,
     interrupt_on_speech: bool = True,
     auto_speak: bool = True,
+    announcement_fallback=None,
   ) -> None:
     self._brain = brain
     self._bus = event_bus
@@ -51,6 +52,8 @@ class VoiceService(Voice):
     self._max_reply_tokens = max_reply_tokens
     self._interrupt_on_speech = interrupt_on_speech
     self._auto_speak = auto_speak
+    # Speaks announcements when the Kokoro voice is not installed (Windows voice).
+    self._announcement_fallback = announcement_fallback
     self._chunker = TextChunker(min_chars=chunk_min_chars, max_chars=chunk_max_chars)
     self._speech_queue = AudioQueue()
     self._status = VoiceStatus.IDLE
@@ -199,11 +202,11 @@ class VoiceService(Voice):
     """
     if not text.strip():
       return False
-    if not self._tts.is_available():
-      logger.warning('Not speaking: voice model unavailable (pip install -e ".[voice]")')
-      return False
-    if not self._audio.is_available():
-      logger.warning("Not speaking: no audio output (sounddevice missing or no speaker)")
+    if not self._tts.is_available() or not self._audio.is_available():
+      fallback = self._announcement_fallback
+      if fallback is not None and fallback.is_available():
+        return fallback.speak(text)
+      logger.warning('Not speaking: no voice available (pip install -e ".[voice]")')
       return False
     busy = {
       VoiceStatus.LISTENING,
@@ -232,6 +235,8 @@ class VoiceService(Voice):
       self._set_status(VoiceStatus.IDLE)
 
   def shutdown(self) -> None:
+    if self._announcement_fallback is not None:
+      self._announcement_fallback.stop()
     self.stop_conversation()
     self._tts_stop.set()
     self._speech_queue.cancel_all()

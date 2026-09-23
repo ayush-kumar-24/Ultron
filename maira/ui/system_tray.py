@@ -105,6 +105,7 @@ class TrayController(QObject):
   open_requested = Signal()
   quit_requested = Signal()
   test_notification_requested = Signal()
+  briefing_requested = Signal()
 
   def __init__(
     self,
@@ -138,6 +139,10 @@ class TrayController(QObject):
       self.autostart_action.toggled.connect(self._toggle_autostart)
       self._menu.addAction(self.autostart_action)
       self._menu.addSeparator()
+
+    briefing_action = QAction("Today's plan", self._menu)
+    briefing_action.triggered.connect(self.briefing_requested.emit)
+    self._menu.addAction(briefing_action)
 
     test_action = QAction("Send test notification", self._menu)
     test_action.triggered.connect(self.test_notification_requested.emit)
