@@ -24,6 +24,7 @@ pip install -e ".[desktop]"
 
 - **Chat** — local LLM (Hinglish-friendly companion prompt)
 - **Dictate** — Chat mic / Alt+V / hold Ctrl+Shift+V (speech → text, no TTS required)
+- **Tasks & notes from chat or voice** — `add task pay bill tomorrow`, `task: call mom at 6pm urgent`, `what's pending`, `aaj ke tasks`, `done 2`, `pay bill ho gaya`, `delete task milk`, `note: call Rahul about project`
 - **Automations** — schedule from chat (`remind me in 2 minutes`, `open youtube at 9pm`)
 - **Runs in the background** — closing the window hides Ultron to the system tray; reminders keep firing. Quit from the tray menu.
 - **Reminder pop-ups** — Windows notifications with **Done** / **Snooze** (10 min) buttons; missed reminders say when they were due

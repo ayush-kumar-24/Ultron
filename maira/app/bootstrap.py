@@ -175,6 +175,7 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
       recall_mode=settings.memory.recall_mode,
       automation=container.resolve("automation"),
       desktop=container.resolve("desktop"),
+      planner=container.resolve("planner"),
     )
 
   container.register("brain", brain_factory)

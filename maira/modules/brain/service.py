@@ -10,6 +10,7 @@ from maira.core.interfaces.llm import LLMProvider
 from maira.core.interfaces.memory import Memory
 from maira.core.interfaces.automation import Automation
 from maira.core.interfaces.desktop import DesktopController
+from maira.core.interfaces.planner import Planner
 from maira.infrastructure.llm.ollama.client import OLLAMA_UNAVAILABLE_USER_MESSAGE
 from maira.infrastructure.persistence.sqlite.repositories import ConversationRepository
 from maira.modules.automation.parser import parse_schedule_request
@@ -22,6 +23,7 @@ from maira.modules.brain.context import (
 from maira.modules.brain.conversation import ConversationSession
 from maira.modules.brain.streaming import TokenStreamer
 from maira.modules.memory.worker import MemoryWorker
+from maira.modules.planner.chat import PlannerChat
 from maira.shared.utils.latency import begin_trace, clear_trace, current_trace
 
 
@@ -55,6 +57,7 @@ class BrainService(Brain):
     recall_mode: str = "keyword",
     automation: Automation | None = None,
     desktop: DesktopController | None = None,
+    planner: Planner | None = None,
   ) -> None:
     self._llm = llm
     self._repo = repository
@@ -72,6 +75,7 @@ class BrainService(Brain):
     self._recall_mode = recall_mode if recall_mode in {"keyword", "semantic"} else "keyword"
     self._automation = automation
     self._desktop = desktop
+    self._planner_chat = PlannerChat(planner) if planner is not None else None
     self._conversation = self._load_or_create_conversation()
 
   def _load_or_create_conversation(self) -> Conversation:
@@ -93,6 +97,10 @@ class BrainService(Brain):
   ) -> None:
     cleaned = text.strip()
     if not cleaned:
+      return
+
+    # Tasks and notes ("add task …", "what's pending", "done 2") — works by voice too.
+    if self._planner_chat is not None and self._try_planner_from_chat(cleaned):
       return
 
     # Timed automation from chat — confirm without a full LLM round-trip.
@@ -198,6 +206,40 @@ class BrainService(Brain):
     if self._log_latency:
       trace.log_summary()
     self._streamer.publish_complete(full_response)
+
+  def _try_planner_from_chat(self, cleaned: str) -> bool:
+    assert self._planner_chat is not None
+    try:
+      reply = self._planner_chat.handle(cleaned)
+    except Exception:  # noqa: BLE001
+      logger.exception("Planner command failed; falling back to the LLM")
+      return False
+    if reply is None:
+      return False
+    self._reply_locally(cleaned, reply.text)
+    if reply.changed:
+      self._bus.publish("planner.changed", {"reason": "chat"})
+    logger.info("Planner from chat: {}", reply.text.splitlines()[0])
+    return True
+
+  def _reply_locally(self, cleaned: str, reply: str) -> None:
+    """Answer without the LLM: save both turns and stream the reply."""
+    user_message = self._session.add_user_message(cleaned)
+    is_first_turn = len(self._session.get_messages()) == 1
+    assistant_message = self._session.add_assistant_message(reply)
+    with self._repo.transaction():
+      self._repo.add_message(self._conversation.id, user_message)
+      self._repo.add_message(self._conversation.id, assistant_message)
+      if is_first_turn and self._conversation.title == "New chat":
+        self._repo.update_title(self._conversation.id, _title_from_text(cleaned))
+        refreshed = self._repo.get_conversation(self._conversation.id)
+        if refreshed is not None:
+          self._conversation = refreshed
+    self._streamer.publish_context(
+      {"query": cleaned, "memory_ids": [], "memory_titles": [], "char_count": 0}
+    )
+    self._streamer.publish_token(reply)
+    self._streamer.publish_complete(reply)
 
   def _try_schedule_from_chat(self, cleaned: str) -> bool:
     assert self._automation is not None

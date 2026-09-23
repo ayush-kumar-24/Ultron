@@ -135,7 +135,7 @@ class PrototypeWindow(QMainWindow):
     self._bridges.append(
       ProtoChatBridge(brain, event_bus, chat, model_name=settings.ollama.model)
     )
-    self._bridges.append(ProtoPlannerBridge(planner, self.screens["tasks"], self.screens["notes"]))
+    self._bridges.append(ProtoPlannerBridge(planner, self.screens["tasks"], self.screens["notes"], event_bus))
     self._bridges.append(ProtoMemoryBridge(memory, self.screens["memory"]))
     self._bridges.append(ProtoVoiceBridge(voice, event_bus, chat))
 
