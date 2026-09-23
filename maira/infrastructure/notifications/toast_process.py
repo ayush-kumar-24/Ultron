@@ -129,7 +129,8 @@ class ToastProcessNotifier(Notifier):
           self._on_failed(str(message.get("id")))
       except Exception:  # noqa: BLE001
         logger.exception("Notification helper message failed: {}", kind)
-    logger.warning("Notification helper exited (code {})", process.poll())
+    if process is self._process:
+      logger.warning("Notification helper stopped unexpectedly; it restarts on the next reminder")
 
   def _write(self, message: dict) -> bool:
     process = self._process
