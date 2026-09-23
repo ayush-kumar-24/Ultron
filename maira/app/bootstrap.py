@@ -1,7 +1,9 @@
 """Application bootstrap sequence."""
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
+import sys
 import threading
 
 from loguru import logger
@@ -10,12 +12,15 @@ from PySide6.QtWidgets import QApplication
 from maira.app.container import Container
 from maira.app.lifecycle import Lifecycle
 from maira.app.settings import Settings, load_settings
+from maira.app.single_instance import SingleInstanceGuard
 from maira.core.bus.event_bus import EventBus
 from maira.infrastructure.embeddings.sentence_transformers.encoder import (
   SentenceTransformerEncoder,
 )
 from maira.infrastructure.llm.ollama.client import OllamaClient
 from maira.infrastructure.logging.loguru_setup import setup_logging
+from maira.infrastructure.notifications.windows_toast import WindowsToastNotifier
+from maira.infrastructure.os.autostart import BACKGROUND_FLAG, AutostartManager
 from maira.infrastructure.persistence.sqlite.connection import SqliteStorage
 from maira.infrastructure.persistence.sqlite.migrations import apply_migrations
 from maira.infrastructure.persistence.sqlite.repositories import (
@@ -30,6 +35,7 @@ from maira.infrastructure.speech.kokoro.engine import KokoroEngine
 from maira.infrastructure.speech.whisper.engine import WhisperEngine
 from maira.infrastructure.vector.chromadb.collections import ChromaVectorStore
 from maira.modules.automation.executor import AutomationExecutor
+from maira.modules.automation.parser import LOCAL_TZ
 from maira.modules.automation.runner import AutomationRunner
 from maira.modules.automation.service import AutomationService
 from maira.modules.brain.conversation import ConversationSession
@@ -38,15 +44,23 @@ from maira.modules.desktop_controller.service import DesktopControllerService
 from maira.modules.memory.policy import MemoryPolicy
 from maira.modules.memory.service import MemoryService
 from maira.modules.memory.worker import MemoryWorker
+from maira.modules.notifications.service import NotificationService
 from maira.modules.planner.service import PlannerService
 from maira.modules.voice.service import VoiceService
 from maira.modules.voice.stt import SpeechToText
 from maira.modules.voice.stt.registry import create_stt, ensure_default_stt_providers
 from maira.modules.voice.tts import TextToSpeech
 from maira.modules.voice.tts.registry import create_tts, ensure_default_tts_providers
-from maira.shared.utils.paths import database_path, project_root
+from maira.shared.utils.paths import data_dir, database_path, project_root
 from maira.ui.application import create_qt_application
 from maira.ui.prototype.shell.main_window import PrototypeWindow as MainWindow
+from maira.ui.system_tray import (
+  NotificationActionRelay,
+  TrayBalloonNotifier,
+  TrayController,
+  app_icon,
+  export_icon_files,
+)
 
 
 @dataclass
@@ -55,6 +69,7 @@ class AppContext:
   container: Container
   lifecycle: Lifecycle
   window: MainWindow
+  tray: TrayController | None = None
 
 
 def _resolve_chroma_path(settings: Settings) -> Path:
@@ -105,6 +120,15 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
   container.register_instance("planner", PlannerService(task_repository, note_repository))
   automation = AutomationService(automation_repository)
   container.register_instance("automation", automation)
+  container.register_instance(
+    "notifications",
+    NotificationService(
+      automation,
+      event_bus=event_bus,
+      snooze_minutes=settings.notifications.snooze_minutes,
+      local_tz=LOCAL_TZ,
+    ),
+  )
   desktop = DesktopControllerService(
     enabled=settings.desktop.enabled,
     allow_input=settings.desktop.allow_input,
@@ -163,8 +187,13 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
     def notify(message: str) -> None:
       container.resolve("event_bus").publish("automation.notify", {"message": message})
 
+    def remind(job, message: str) -> None:
+      if settings.notifications.enabled:
+        container.resolve("notifications").remind(job, message)
+      notify(f"Reminder: {message}")
+
     executor = AutomationExecutor(
-      automation, brain=brain, desktop=desktop, on_notify=notify
+      automation, brain=brain, desktop=desktop, on_notify=notify, on_reminder=remind
     )
     runner = AutomationRunner(automation, executor, interval_ms=5_000)
     lifecycle.on_shutdown(runner.stop)
@@ -244,20 +273,97 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
   container.register("voice", voice_factory)
 
 
-def bootstrap() -> AppContext:
+def _setup_background(
+  qt_app: QApplication,
+  container: Container,
+  settings: Settings,
+  window: MainWindow,
+  lifecycle: Lifecycle,
+) -> TrayController | None:
+  """Tray icon, close-to-tray, Start with Windows, and OS reminder pop-ups."""
+  icon = app_icon()
+  qt_app.setWindowIcon(icon)
+  window.setWindowIcon(icon)
+
+  tray: TrayController | None = None
+  if TrayController.is_supported():
+    autostart = AutostartManager(settings.app_name)
+    autostart.refresh()
+    tray = TrayController(icon, app_name=settings.app_name, autostart=autostart)
+    tray.open_requested.connect(window.bring_to_front)
+    tray.quit_requested.connect(qt_app.quit)
+    tray.show()
+    lifecycle.on_shutdown(tray.hide)
+    if settings.background.close_to_tray:
+
+      def hide_to_tray() -> bool:
+        tray.show_background_hint_once()
+        return True
+
+      window.set_close_handler(hide_to_tray)
+      qt_app.setQuitOnLastWindowClosed(False)
+  else:
+    logger.warning("System tray unavailable; Ultron will quit when the window closes")
+
+  notifications: NotificationService = container.resolve("notifications")
+  notifications.set_open_handler(window.bring_to_front)
+  if not settings.notifications.enabled:
+    return tray
+
+  event_bus: EventBus = container.resolve("event_bus")
+
+  def on_action(notification_id: str, action: str) -> None:
+    message = notifications.handle_action(notification_id, action)
+    if message:
+      event_bus.publish("automation.notify", {"message": message})
+
+  relay = NotificationActionRelay(on_action, parent=qt_app)
+  if settings.notifications.windows_toast and os.name == "nt":
+    notifications.add_notifier(
+      WindowsToastNotifier(
+        relay.post,
+        app_name=settings.app_name,
+        icon_path=export_icon_files(data_dir() / "assets"),
+      )
+    )
+  if tray is not None:
+    notifications.add_notifier(TrayBalloonNotifier(tray))
+  if not notifications.has_backend():
+    logger.warning("No OS notification backend; reminders show inside the app only")
+  return tray
+
+
+def bootstrap(argv: list[str] | None = None) -> AppContext | None:
+  """Build the app. Returns None when another instance is already running."""
+  args = list(sys.argv[1:] if argv is None else argv)
+  background = BACKGROUND_FLAG in args
+
   setup_logging()
-  logger.info("Starting Maira")
+  logger.info("Starting Ultron{}", " in background" if background else "")
 
   settings = load_settings()
+  qt_app = create_qt_application(settings)
+
+  guard = SingleInstanceGuard()
+  if not guard.try_acquire():
+    return None
+
   container = Container()
   lifecycle = Lifecycle()
+  lifecycle.on_shutdown(guard.release)
 
   _register_services(container, settings, lifecycle)
 
-  qt_app = create_qt_application(settings)
   window = MainWindow(container=container, skip_onboarding=True)
-  window.show()
+  tray = _setup_background(qt_app, container, settings, window, lifecycle)
+  guard.activation_requested.connect(window.bring_to_front)
 
-  lifecycle.on_shutdown(lambda: logger.info("Maira shutdown complete"))
+  start_hidden = tray is not None and (background or settings.background.start_minimized)
+  if not start_hidden:
+    window.show()
 
-  return AppContext(qt_app=qt_app, container=container, lifecycle=lifecycle, window=window)
+  lifecycle.on_shutdown(lambda: logger.info("Ultron shutdown complete"))
+
+  return AppContext(
+    qt_app=qt_app, container=container, lifecycle=lifecycle, window=window, tray=tray
+  )

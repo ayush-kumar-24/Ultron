@@ -76,6 +76,19 @@ class DesktopSettings:
 
 
 @dataclass(frozen=True)
+class BackgroundSettings:
+  close_to_tray: bool
+  start_minimized: bool
+
+
+@dataclass(frozen=True)
+class NotificationSettings:
+  enabled: bool
+  windows_toast: bool
+  snooze_minutes: int
+
+
+@dataclass(frozen=True)
 class Settings:
   app: AppSettings
   paths: PathSettings
@@ -84,6 +97,8 @@ class Settings:
   context: ContextSettings
   voice: VoiceSettings
   desktop: DesktopSettings
+  background: BackgroundSettings
+  notifications: NotificationSettings
 
   @property
   def app_name(self) -> str:
@@ -102,6 +117,8 @@ def load_settings() -> Settings:
   context_raw = merged.get("context", {})
   voice_raw = merged.get("voice", {})
   desktop_raw = merged.get("desktop", {})
+  background_raw = merged.get("background", {})
+  notifications_raw = merged.get("notifications", {})
   stt_raw = voice_raw.get("stt", {}) if isinstance(voice_raw.get("stt"), dict) else {}
   tts_raw = voice_raw.get("tts", {}) if isinstance(voice_raw.get("tts"), dict) else {}
   behavior_raw = voice_raw.get("behavior", {}) if isinstance(voice_raw.get("behavior"), dict) else {}
@@ -185,5 +202,14 @@ def load_settings() -> Settings:
     desktop=DesktopSettings(
       enabled=bool(desktop_raw.get("enabled", True)),
       allow_input=bool(desktop_raw.get("allow_input", True)),
+    ),
+    background=BackgroundSettings(
+      close_to_tray=bool(background_raw.get("close_to_tray", True)),
+      start_minimized=bool(background_raw.get("start_minimized", False)),
+    ),
+    notifications=NotificationSettings(
+      enabled=bool(notifications_raw.get("enabled", True)),
+      windows_toast=bool(notifications_raw.get("windows_toast", True)),
+      snooze_minutes=max(1, int(notifications_raw.get("snooze_minutes", 10))),
     ),
   )

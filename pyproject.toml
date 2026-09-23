@@ -13,6 +13,7 @@ dependencies = [
     "Pillow>=10.0.0",
     "pymupdf>=1.24.0",
     "winocr>=0.0.15",
+    "windows-toasts>=1.3.0; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

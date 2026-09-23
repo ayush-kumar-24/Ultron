@@ -24,8 +24,17 @@ pip install -e ".[desktop]"
 
 - **Chat** — local LLM (Hinglish-friendly companion prompt)
 - **Dictate** — Chat mic / Alt+V / hold Ctrl+Shift+V (speech → text, no TTS required)
-- **Automations** — schedule from chat (`remind me in 2 minutes`, `open youtube at 9pm`); runs while Ultron is open
+- **Automations** — schedule from chat (`remind me in 2 minutes`, `open youtube at 9pm`)
+- **Runs in the background** — closing the window hides Ultron to the system tray; reminders keep firing. Quit from the tray menu.
+- **Reminder pop-ups** — Windows notifications with **Done** / **Snooze** (10 min) buttons; missed reminders say when they were due
 - **Desktop control** — short commands (`play teri deewani`, `open notepad and type hello`)
+
+## Background mode
+
+- **Start with Windows:** right-click the tray icon → *Start with Windows*. Ultron then starts hidden in the tray when you sign in.
+- **Launch without a console:** double-click `ultron.pyw` (or run `pythonw ultron.pyw --background` to start hidden).
+- Only one Ultron runs at a time; launching it again just brings the window forward.
+- Settings live under `background:` and `notifications:` in `config/default.yaml` (override in `data/config.yaml`).
 
 ## Voice docs
 

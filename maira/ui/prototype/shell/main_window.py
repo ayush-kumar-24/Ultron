@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import Qt, QEvent, QObject
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QStackedWidget, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QStackedWidget, QWidget
 
 from maira.app.container import Container
 from maira.ui.prototype.components.primitives import ToastHost
@@ -96,6 +98,7 @@ class PrototypeWindow(QMainWindow):
 
     self._bridges: list = []
     self._voice_ptt_active = False
+    self._close_handler: Callable[[], bool] | None = None
     if container is not None:
       self._wire_backend(container)
 
@@ -171,6 +174,30 @@ class PrototypeWindow(QMainWindow):
     except Exception:  # noqa: BLE001
       pass
     self.store.changed.emit("status")
+
+  def set_close_handler(self, handler: Callable[[], bool] | None) -> None:
+    """Handler returns True to hide the window instead of closing (tray mode)."""
+    self._close_handler = handler
+
+  def closeEvent(self, event) -> None:  # noqa: N802
+    # Never veto a Windows sign-out / shutdown: let the window close normally.
+    saving_session = QApplication.instance() is not None and QApplication.instance().isSavingSession()
+    if not saving_session and self._close_handler is not None and self._close_handler():
+      chat = self.screens["chat"]
+      if chat.dictating or chat.voice_mode:
+        chat.set_voice_mode(False)
+      event.ignore()
+      self.hide()
+      return
+    super().closeEvent(event)
+
+  def bring_to_front(self) -> None:
+    if self.isMinimized():
+      self.showNormal()
+    else:
+      self.show()
+    self.raise_()
+    self.activateWindow()
 
   def resizeEvent(self, event) -> None:  # noqa: N802
     super().resizeEvent(event)

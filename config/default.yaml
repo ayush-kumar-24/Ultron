@@ -83,3 +83,17 @@ voice:
 desktop:
   enabled: true
   allow_input: true
+
+# Keep running in the system tray so reminders fire with the window closed.
+# "Start with Windows" is toggled from the tray menu (stored in the registry).
+background:
+  close_to_tray: true
+  # Launch hidden in the tray (autostart always launches hidden).
+  start_minimized: false
+
+# Reminder pop-ups. Windows toasts have Done / Snooze buttons;
+# otherwise a tray balloon is used.
+notifications:
+  enabled: true
+  windows_toast: true
+  snooze_minutes: 10

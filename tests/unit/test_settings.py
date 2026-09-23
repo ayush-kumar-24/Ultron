@@ -37,6 +37,11 @@ def test_load_settings_defaults() -> None:
   assert settings.desktop.allow_input is True
   assert settings.memory.background_encoding is True
   assert settings.memory.recall_mode == "keyword"
+  assert settings.background.close_to_tray is True
+  assert settings.background.start_minimized is False
+  assert settings.notifications.enabled is True
+  assert settings.notifications.windows_toast is True
+  assert settings.notifications.snooze_minutes == 10
 
 
 def test_deep_merge_nested() -> None:
