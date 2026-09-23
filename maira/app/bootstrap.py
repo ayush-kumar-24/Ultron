@@ -19,7 +19,7 @@ from maira.infrastructure.embeddings.sentence_transformers.encoder import (
 )
 from maira.infrastructure.llm.ollama.client import OllamaClient
 from maira.infrastructure.logging.loguru_setup import setup_logging
-from maira.infrastructure.notifications.windows_toast import WindowsToastNotifier
+from maira.infrastructure.notifications.toast_process import ToastProcessNotifier
 from maira.infrastructure.os.autostart import BACKGROUND_FLAG, AutostartManager
 from maira.infrastructure.persistence.sqlite.connection import SqliteStorage
 from maira.infrastructure.persistence.sqlite.migrations import apply_migrations
@@ -319,22 +319,23 @@ def _setup_background(
       event_bus.publish("automation.notify", {"message": message})
 
   relay = NotificationActionRelay(on_action, parent=qt_app)
-  # Windows reports rejected toasts on a WinRT thread; retry on the main thread.
+  # Rejected toasts are reported on a background thread; retry on the main thread.
   failure_relay = NotificationActionRelay(
     lambda notification_id, backend: notifications.retry_without(notification_id, backend),
     parent=qt_app,
   )
   if settings.notifications.windows_toast and os.name == "nt":
     icons = export_icon_files(data_dir() / "assets")
-    notifications.add_notifier(
-      WindowsToastNotifier(
-        relay.post,
-        app_name=settings.app_name,
-        icon_path=icons.ico if icons else None,
-        image_path=icons.png if icons else None,
-        on_failed=lambda notification_id: failure_relay.post(notification_id, "windows-toast"),
-      )
+    # Toasts run in a helper process: pywinrt and Qt crash in one process.
+    toast_notifier = ToastProcessNotifier(
+      relay.post,
+      app_name=settings.app_name,
+      icon_path=icons.ico if icons else None,
+      image_path=icons.png if icons else None,
+      on_failed=lambda notification_id: failure_relay.post(notification_id, "windows-toast"),
     )
+    lifecycle.on_shutdown(toast_notifier.close)
+    notifications.add_notifier(toast_notifier)
   if tray is not None:
     notifications.add_notifier(TrayBalloonNotifier(tray))
 
