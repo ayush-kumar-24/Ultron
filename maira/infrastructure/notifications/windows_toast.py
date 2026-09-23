@@ -19,6 +19,7 @@ _LABELS = {
 }
 
 ActionCallback = Callable[[str, str], None]  # notification_id, action
+FailedCallback = Callable[[str], None]  # notification_id
 
 
 def encode_arguments(action: NotificationAction, notification_id: str) -> str:
@@ -59,11 +60,15 @@ class WindowsToastNotifier(Notifier):
     app_name: str = "Ultron",
     app_id: str = APP_ID,
     icon_path: Path | None = None,
+    image_path: Path | None = None,
+    on_failed: FailedCallback | None = None,
   ) -> None:
     self._on_action = on_action
+    self._on_failed = on_failed
     self._app_name = app_name
     self._app_id = app_id
-    self._icon_path = icon_path
+    self._icon_path = icon_path  # .ico, registered as the app icon
+    self._image_path = image_path  # .png, shown inside the toast
     self._toaster = None
     self._available: bool | None = None
     # Keep recent toasts alive so their button callbacks are never collected.
@@ -115,14 +120,25 @@ class WindowsToastNotifier(Notifier):
     )
     for action in notification.actions:
       toast.AddAction(ToastButton(_LABELS.get(action, action.value.title()), encode_arguments(action, notification.id)))
-    if self._icon_path is not None and self._icon_path.exists():
+    if self._image_path is not None and self._image_path.suffix.lower() == ".png" and self._image_path.exists():
       toast.AddImage(
-        ToastDisplayImage(ToastImage(str(self._icon_path)), position=ToastImagePosition.AppLogo)
+        ToastDisplayImage(ToastImage(str(self._image_path)), position=ToastImagePosition.AppLogo)
       )
     toast.on_activated = self._activated
+    toast.on_failed = lambda args, nid=notification.id: self._failed(nid, args)
     self._toaster.show_toast(toast)
     self._recent.append(toast)
     return True
+
+  def _failed(self, notification_id: str, event_args) -> None:
+    # Windows rejected the toast after show() returned (called on a WinRT thread).
+    code = getattr(event_args, "error_code", None)
+    logger.error("Windows rejected the notification (error {}); falling back", code)
+    if self._on_failed is not None:
+      try:
+        self._on_failed(notification_id)
+      except Exception:  # noqa: BLE001
+        logger.exception("Toast failure handler failed")
 
   def _activated(self, event_args) -> None:
     parsed = decode_arguments(getattr(event_args, "arguments", None))

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from loguru import logger
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, QPointF, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
@@ -51,18 +52,25 @@ def app_icon() -> QIcon:
   return icon
 
 
-def export_icon_files(directory: Path) -> Path | None:
-  """Write logo.png + logo.ico for Windows toasts. Returns the .ico path."""
+@dataclass(frozen=True)
+class IconFiles:
+  png: Path  # toast image (Windows toasts only render PNG/JPG/GIF)
+  ico: Path  # AUMID IconUri (must be .ico)
+
+
+def export_icon_files(directory: Path) -> IconFiles | None:
+  """Write the logo as PNG + ICO for Windows notifications."""
   try:
     directory.mkdir(parents=True, exist_ok=True)
     png_path = directory / "ultron_logo.png"
     ico_path = directory / "ultron_logo.ico"
-    render_logo_pixmap(256).save(str(png_path), "PNG")
+    if not render_logo_pixmap(256).save(str(png_path), "PNG"):
+      raise OSError(f"could not write {png_path}")
     from PIL import Image  # noqa: PLC0415
 
     with Image.open(png_path) as image:
       image.save(ico_path, sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (256, 256)])
-    return ico_path
+    return IconFiles(png=png_path, ico=ico_path)
   except Exception:  # noqa: BLE001
     logger.exception("Could not export app icon")
     return None
@@ -96,6 +104,7 @@ class NotificationActionRelay(QObject):
 class TrayController(QObject):
   open_requested = Signal()
   quit_requested = Signal()
+  test_notification_requested = Signal()
 
   def __init__(
     self,
@@ -129,6 +138,11 @@ class TrayController(QObject):
       self.autostart_action.toggled.connect(self._toggle_autostart)
       self._menu.addAction(self.autostart_action)
       self._menu.addSeparator()
+
+    test_action = QAction("Send test notification", self._menu)
+    test_action.triggered.connect(self.test_notification_requested.emit)
+    self._menu.addAction(test_action)
+    self._menu.addSeparator()
 
     quit_action = QAction(f"Quit {app_name}", self._menu)
     quit_action.triggered.connect(self.quit_requested.emit)

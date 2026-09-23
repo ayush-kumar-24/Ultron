@@ -83,9 +83,11 @@ def test_relay_survives_handler_error(qtbot) -> None:
 def test_logo_renders_and_exports(qtbot, tmp_path) -> None:
   assert not render_logo_pixmap(32).isNull()
   assert not app_icon().isNull()
-  ico = export_icon_files(tmp_path / "assets")
-  assert ico is not None and ico.suffix == ".ico" and ico.stat().st_size > 0
-  assert (tmp_path / "assets" / "ultron_logo.png").exists()
+  icons = export_icon_files(tmp_path / "assets")
+  assert icons is not None
+  assert icons.ico.suffix == ".ico" and icons.ico.stat().st_size > 0
+  # Toast images must be PNG; Windows drops toasts with unsupported images.
+  assert icons.png.suffix == ".png" and icons.png.stat().st_size > 0
 
 
 

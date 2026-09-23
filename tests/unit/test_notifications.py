@@ -275,3 +275,55 @@ def test_windows_toast_activation_forwards_action() -> None:
   notifier._activated(Args())  # noqa: SLF001
   notifier._activated(type("Empty", (), {"arguments": None})())  # noqa: SLF001
   assert calls == [("n1", "done")]
+
+
+class NamedNotifier(FakeNotifier):
+  def __init__(self, label: str, **kwargs) -> None:
+    super().__init__(**kwargs)
+    self.label = label
+
+  def name(self) -> str:
+    return self.label
+
+
+def test_remind_logs_backend_and_retry_skips_failed_backend(automation) -> None:
+  service = _service(automation)
+  toast = NamedNotifier("windows-toast")
+  balloon = NamedNotifier("tray-balloon")
+  service.add_notifier(toast)
+  service.add_notifier(balloon)
+  notification = service.remind(_reminder(automation), "drink water")
+  assert len(toast.shown) == 1 and balloon.shown == []
+
+  # Windows later reports the toast as failed: re-show with the next backend.
+  assert service.retry_without(notification.id, "windows-toast") == "tray-balloon"
+  assert balloon.shown == [notification]
+  assert len(toast.shown) == 1
+
+
+def test_retry_for_unknown_notification_is_noop(automation) -> None:
+  service = _service(automation)
+  service.add_notifier(NamedNotifier("tray-balloon"))
+  assert service.retry_without("missing", "windows-toast") is None
+
+
+def test_send_test_notification(automation) -> None:
+  service = _service(automation)
+  assert service.send_test() is None  # no backend yet
+  backend = NamedNotifier("windows-toast")
+  service.add_notifier(backend)
+  assert service.send_test() == "windows-toast"
+  shown = backend.shown[-1]
+  assert shown.job_id is None
+  assert service.handle_action(shown.id, "done") == f"Done: {shown.title}"
+
+
+def test_windows_toast_failure_calls_back_with_notification_id() -> None:
+  failed: list = []
+  notifier = WindowsToastNotifier(lambda *_: None, on_failed=failed.append)
+
+  class Args:
+    error_code = -2143420143
+
+  notifier._failed("n42", Args())  # noqa: SLF001
+  assert failed == ["n42"]

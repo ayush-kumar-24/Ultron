@@ -83,6 +83,24 @@ class NotificationService:
     self._show(notification)
     return notification
 
+  def send_test(self) -> str | None:
+    """Show a sample notification. Returns the backend that showed it."""
+    notification = Notification(
+      id=uuid.uuid4().hex,
+      title="Ultron notifications work",
+      body="Your reminders will pop up like this.",
+      actions=(NotificationAction.DONE,),
+    )
+    self._track(notification)
+    return self._show(notification)
+
+  def retry_without(self, notification_id: str, failed_backend: str) -> str | None:
+    """A backend failed asynchronously: show the same notification with the next one."""
+    notification = self._tracked.get(notification_id)
+    if notification is None:
+      return None
+    return self._show(notification, skip={failed_backend})
+
   def handle_action(self, notification_id: str, action: str) -> str | None:
     """Apply a button click. Returns a short status message, or None if ignored."""
     try:
@@ -124,15 +142,19 @@ class NotificationService:
     self._publish("automation.changed", None)
     return f"Snoozed for {self.snooze_minutes} min: {notification.title}"
 
-  def _show(self, notification: Notification) -> bool:
+  def _show(self, notification: Notification, *, skip: set[str] | None = None) -> str | None:
+    """Try backends in order. Returns the name of the one that showed it."""
     for notifier in self._notifiers:
+      if skip and notifier.name() in skip:
+        continue
       try:
         if notifier.show(notification):
-          return True
+          logger.info("Notification '{}' sent via {}", notification.title, notifier.name())
+          return notifier.name()
       except Exception:  # noqa: BLE001
         logger.exception("Notification backend {} failed", notifier.name())
     logger.warning("No notification backend showed: {}", notification.title)
-    return False
+    return None
 
   def _track(self, notification: Notification) -> None:
     self._tracked[notification.id] = notification

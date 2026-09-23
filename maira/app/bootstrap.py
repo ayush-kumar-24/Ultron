@@ -293,6 +293,7 @@ def _setup_background(
     tray.open_requested.connect(window.bring_to_front)
     tray.quit_requested.connect(qt_app.quit)
     tray.show()
+    logger.info("Tray icon ready")
     lifecycle.on_shutdown(tray.hide)
     if settings.background.close_to_tray:
 
@@ -318,16 +319,31 @@ def _setup_background(
       event_bus.publish("automation.notify", {"message": message})
 
   relay = NotificationActionRelay(on_action, parent=qt_app)
+  # Windows reports rejected toasts on a WinRT thread; retry on the main thread.
+  failure_relay = NotificationActionRelay(
+    lambda notification_id, backend: notifications.retry_without(notification_id, backend),
+    parent=qt_app,
+  )
   if settings.notifications.windows_toast and os.name == "nt":
+    icons = export_icon_files(data_dir() / "assets")
     notifications.add_notifier(
       WindowsToastNotifier(
         relay.post,
         app_name=settings.app_name,
-        icon_path=export_icon_files(data_dir() / "assets"),
+        icon_path=icons.ico if icons else None,
+        image_path=icons.png if icons else None,
+        on_failed=lambda notification_id: failure_relay.post(notification_id, "windows-toast"),
       )
     )
   if tray is not None:
     notifications.add_notifier(TrayBalloonNotifier(tray))
+
+    def send_test() -> None:
+      backend = notifications.send_test()
+      if backend is None:
+        tray.show_message("Ultron", "Couldn't show a Windows notification — see data/logs/maira.log")
+
+    tray.test_notification_requested.connect(send_test)
   if not notifications.has_backend():
     logger.warning("No OS notification backend; reminders show inside the app only")
   return tray
