@@ -15,13 +15,17 @@ import threading
 from loguru import logger
 
 # Text arrives on stdin, so quotes or symbols in it cannot break the command.
-# Prefers an Indian English / Hindi voice when Windows has one installed.
+# Voice choice: female Indian English/Hindi (Heera) > any female (Zira) > Indian.
 _SCRIPT = r"""
 Add-Type -AssemblyName System.Speech
 $s = New-Object System.Speech.Synthesis.SpeechSynthesizer
-$v = $s.GetInstalledVoices() | Where-Object { $_.Enabled -and $_.VoiceInfo.Culture.Name -in @('en-IN','hi-IN') } | Select-Object -First 1
-if ($v) { $s.SelectVoice($v.VoiceInfo.Name) }
-$s.Rate = 0
+$all = $s.GetInstalledVoices() | Where-Object { $_.Enabled } | ForEach-Object { $_.VoiceInfo }
+$indian = @('en-IN','hi-IN')
+$pick = $all | Where-Object { $_.Gender -eq 'Female' -and $indian -contains $_.Culture.Name } | Select-Object -First 1
+if (-not $pick) { $pick = $all | Where-Object { $_.Gender -eq 'Female' } | Select-Object -First 1 }
+if (-not $pick) { $pick = $all | Where-Object { $indian -contains $_.Culture.Name } | Select-Object -First 1 }
+if ($pick) { $s.SelectVoice($pick.Name) }
+$s.Rate = -1
 $s.Speak([Console]::In.ReadToEnd())
 """
 
