@@ -418,6 +418,7 @@ def bootstrap(argv: list[str] | None = None) -> AppContext | None:
   window = MainWindow(container=container, skip_onboarding=True)
   tray = _setup_background(qt_app, container, settings, window, lifecycle)
   guard.activation_requested.connect(window.bring_to_front)
+  guard.replace_requested.connect(qt_app.quit)
   _setup_briefing(container, settings, lifecycle, tray)
 
   start_hidden = tray is not None and (background or settings.background.start_minimized)
