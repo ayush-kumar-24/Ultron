@@ -529,6 +529,23 @@ class VoiceService(Voice):
       trace.mark("tts_start")
     self._speech_queue.put(text, meta={"gen": gen})
 
+  def _fallback_say(self, text: str, reason: str) -> bool:
+    """Kokoro gave no audio or failed: say it with the Windows voice instead of staying silent."""
+    fallback = self._announcement_fallback
+    if fallback is None or not fallback.is_available() or not text.strip():
+      return False
+    logger.warning("Speaking with the Windows voice instead ({})", reason)
+    say = getattr(fallback, "speak_and_wait", None) or fallback.speak
+    self._set_status(VoiceStatus.SPEAKING)
+    try:
+      ok = bool(say(text))
+    except Exception:  # noqa: BLE001
+      logger.exception("Windows voice fallback failed")
+      return False
+    if ok:
+      self._spoken_any = True
+    return ok
+
   def _ensure_tts_worker(self) -> None:
     self._tts_stop.clear()
     if self._tts_thread and self._tts_thread.is_alive():
@@ -572,9 +589,10 @@ class VoiceService(Voice):
           self._spoken_any = True
         except Exception as exc:  # noqa: BLE001
           logger.exception("TTS failed")
-          self._publish_error("I can still respond in text.")
           logger.debug("TTS detail: {}", exc)
-          break
+          if not self._fallback_say(item.text, "voice model failed"):
+            self._publish_error("I can still respond in text.")
+            break
         continue
 
       if prepared is None:
@@ -588,10 +606,15 @@ class VoiceService(Voice):
           chunks = _synth(item.text, gen)
         except Exception as exc:  # noqa: BLE001
           logger.exception("TTS failed")
-          self._publish_error("I can still respond in text.")
           logger.debug("TTS detail: {}", exc)
+          if gen == self._generation and self._fallback_say(item.text, "voice model failed"):
+            continue
+          self._publish_error("I can still respond in text.")
           break
         if not chunks:
+          if gen == self._generation:
+            logger.warning("Voice model produced no audio for: {!r}", item.text[:80])
+            self._fallback_say(item.text, "no audio from voice model")
           continue
         prepared = (gen, chunks)
 
@@ -635,7 +658,8 @@ class VoiceService(Voice):
 
       player.join(timeout=120.0)
       if play_error:
-        self._publish_error("I can still respond in text.")
+        logger.error("Audio playback failed: {}", play_error[0])
+        self._publish_error(f"Speaker playback failed: {play_error[0]}")
         break
 
   def _wait_speech_drain(self, gen: int, *, timeout: float) -> None:

@@ -66,6 +66,18 @@ class WindowsSpeech:
     logger.info("Speaking with the Windows voice ({} chars)", len(text))
     return True
 
+  def speak_and_wait(self, text: str, timeout: float = 120.0) -> bool:
+    """Speak and block until finished (used inside the voice conversation)."""
+    if not self.speak(text):
+      return False
+    process = self._process
+    if process is not None:
+      try:
+        process.wait(timeout=timeout)
+      except subprocess.TimeoutExpired:
+        self.stop()
+    return True
+
   def stop(self) -> None:
     process = self._process
     self._process = None
