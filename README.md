@@ -26,6 +26,7 @@ pip install -e ".[desktop]"
 - **Dictate** — Chat mic / Alt+V / hold Ctrl+Shift+V (speech → text, no TTS required)
 - **Tasks & notes from chat or voice** — `add task pay bill tomorrow`, `task: call mom at 6pm urgent`, `what's pending`, `aaj ke tasks`, `done 2`, `pay bill ho gaya`, `delete task milk`, `note: call Rahul about project`
 - **Tasks + reminders together** — a task with a time (`add task call mom at 6pm`) reminds you then; **Done** on that pop-up completes the task; finishing or deleting the task cancels its reminder; unfinished tasks from earlier days move to today. Settings under `tasks:`.
+- **Home = your day at a glance** — today's tasks (overdue first), upcoming reminders and recent notes, updated live; buttons: Plan my day · What's pending? · Add a task · Set a reminder. Activity shows what really happened; Ctrl+F searches your tasks, notes and memory.
 - **Daily briefing** — every morning (default 8:00) Ultron posts today's plan in chat, shows a notification and speaks a short summary: overdue items, today's tasks, reminders, and what to do first. Ask any time: `plan my day`, `aaj ka plan`. Set the time and your name under `briefing:` in the config.
 - **Automations** — schedule from chat (`remind me in 2 minutes`, `open youtube at 9pm`)
 - **Runs in the background** — closing the window hides Ultron to the system tray; reminders keep firing. Quit from the tray menu.

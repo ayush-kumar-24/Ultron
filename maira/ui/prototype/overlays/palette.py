@@ -155,6 +155,11 @@ class SearchOverlay(_OverlayBase):
     hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(hint)
 
+  def set_categories(self, allowed: list[str]) -> None:
+    """Show only the category tabs that have real data behind them."""
+    for btn in self._tab_buttons:
+      btn.setVisible(btn.text() in allowed)
+
   def open(self) -> None:
     super().open()
     self.input.clear()

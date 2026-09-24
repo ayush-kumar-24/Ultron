@@ -91,6 +91,7 @@ class PrototypeWindow(QMainWindow):
     self.screens["home"].command.connect(self._home_command)
     self.screens["home"].quick_action.connect(self._quick_action)
     self.screens["home"].voice.connect(self.open_voice)
+    self.screens["home"].open_screen.connect(self.navigate)
     self.palette.activated.connect(self._run_command)
     self.search.result_chosen.connect(self._search_result)
     self.store.toast.connect(self.toast.show_toast)
@@ -113,6 +114,7 @@ class PrototypeWindow(QMainWindow):
     from maira.ui.prototype.integration.automation_bridge import ProtoAutomationBridge
     from maira.ui.prototype.integration.chat_bridge import ProtoChatBridge
     from maira.ui.prototype.integration.memory_bridge import ProtoMemoryBridge
+    from maira.ui.prototype.integration.overview_bridge import SEARCH_CATEGORIES, OverviewBridge
     from maira.ui.prototype.integration.planner_bridge import ProtoPlannerBridge
     from maira.ui.prototype.integration.voice_bridge import ProtoVoiceBridge
 
@@ -137,6 +139,9 @@ class PrototypeWindow(QMainWindow):
     )
     self._bridges.append(ProtoPlannerBridge(planner, self.screens["tasks"], self.screens["notes"], event_bus))
     self._bridges.append(ProtoMemoryBridge(memory, self.screens["memory"]))
+    self._overview = OverviewBridge(planner, automation, memory, event_bus, self.screens["home"], self.store)
+    self._bridges.append(self._overview)
+    self.search.set_categories(SEARCH_CATEGORIES)
     self._bridges.append(ProtoVoiceBridge(voice, event_bus, chat))
 
     runner = container.resolve("automation_runner")
@@ -281,6 +286,9 @@ class PrototypeWindow(QMainWindow):
   def navigate(self, key: str) -> None:
     if key not in self.screens:
       return
+    overview = getattr(self, "_overview", None)
+    if overview is not None and key in ("home", "activity"):
+      overview.refresh()
     chat = self.screens["chat"]
     if key != "chat" and (chat.voice_mode or chat.dictating):
       chat.set_voice_mode(False)
@@ -334,6 +342,15 @@ class PrototypeWindow(QMainWindow):
   def _quick_action(self, action_id: str) -> None:
     if action_id == "plan":
       self._home_command("Plan my day")
+      return
+    if action_id == "pending" and self._container is not None:
+      self._home_command("What's pending?")
+      return
+    if action_id == "add_task":
+      self.screens["home"].prefill("add task ")
+      return
+    if action_id == "reminder":
+      self.screens["home"].prefill("remind me in 10 minutes to ")
       return
     mapping = {
       "workspace": ("automations", "Opening Morning Workspace (mock)"),
