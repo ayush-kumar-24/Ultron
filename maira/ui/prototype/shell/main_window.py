@@ -152,6 +152,10 @@ class PrototypeWindow(QMainWindow):
     )
     self._bridges.append(auto_bridge)
     event_bus.subscribe(
+      "skill.used",
+      lambda p: self.store.toast.emit(f"Using skill: {p.get('name', '')}"),
+    )
+    event_bus.subscribe(
       "automation.notify",
       lambda p: self.store.toast.emit(str(p.get("message", "Automation"))),
     )

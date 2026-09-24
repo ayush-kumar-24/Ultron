@@ -107,6 +107,12 @@ def build_settings_actions(
   live: dict[str, Callable[[Any], None]] = {}
   if on_name_changed is not None:
     live["briefing.name"] = lambda value: on_name_changed(str(value or ""))
+  skills = _optional(container, "skills")
+  if skills is not None:
+    # Skill settings apply at once, no restart.
+    for key, cast in (("enabled", bool), ("auto_use", bool), ("max_chars", int),
+                      ("context_window", int), ("script_timeout", int)):
+      live[f"skills.{key}"] = lambda value, key=key, cast=cast: setattr(skills, key, cast(value))
 
   def set_autostart(on: bool) -> bool:
     if autostart is None:
@@ -130,4 +136,5 @@ def build_settings_actions(
     data_dir=data_dir(),
     logs_dir=logs_dir(),
     live=live,
+    skills=skills,
   )

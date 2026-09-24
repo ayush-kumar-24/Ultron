@@ -172,6 +172,11 @@ QScrollArea {{
   border: none;
 }}
 
+/* The viewport and page inside every scroll area follow the dark theme too. */
+QScrollArea > QWidget, QScrollArea > QWidget > QWidget {{
+  background: transparent;
+}}
+
 QScrollBar:vertical {{
   background: transparent;
   width: 8px;

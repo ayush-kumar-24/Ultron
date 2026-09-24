@@ -48,6 +48,8 @@ from maira.modules.memory.service import MemoryService
 from maira.modules.memory.worker import MemoryWorker
 from maira.modules.notifications.service import NotificationService
 from maira.modules.planner.briefing import Briefing, BriefingService
+from maira.modules.skills.service import SkillService
+from maira.modules.skills.store import SkillStore
 from maira.modules.planner.briefing.runner import BriefingRunner
 from maira.modules.planner.briefing.schedule import BriefingSchedule, parse_clock
 from maira.modules.planner.reminders import LinkedPlanner
@@ -139,6 +141,18 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
     "briefing",
     BriefingService(container.resolve("planner"), automation, name=settings.briefing.name),
   )
+  skill_store = SkillStore(data_dir() / "skills")
+  container.register_instance(
+    "skills",
+    SkillService(
+      skill_store,
+      enabled=settings.skills.enabled,
+      auto_use=settings.skills.auto_use,
+      max_chars=settings.skills.max_chars,
+      context_window=settings.skills.context_window,
+      script_timeout=settings.skills.script_timeout,
+    ),
+  )
   container.register_instance(
     "notifications",
     NotificationService(
@@ -196,6 +210,7 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
       desktop=container.resolve("desktop"),
       planner=container.resolve("planner"),
       briefing=container.resolve("briefing"),
+      skills=container.resolve("skills"),
     )
 
   container.register("brain", brain_factory)

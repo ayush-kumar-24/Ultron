@@ -57,6 +57,7 @@ class SettingsActions:
   data_dir: Path | None = None
   logs_dir: Path | None = None
   live: dict[str, Callable[[Any], None]] = field(default_factory=dict)  # path -> apply now
+  skills: Any = None  # SkillService: the Skills page lists and installs skills
 
 
 def _muted(text: str) -> QLabel:
@@ -167,6 +168,17 @@ class LiveSettingsScreen(QWidget):
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(12)
 
+    extra = {
+      "skills": self._skills_tools,
+      "voice": self._voice_tools,
+      "ai": self._ai_tools,
+      "developer": self._developer_tools,
+      "status": self._status_panel,
+    }.get(key)
+    if key == "skills" and extra is not None:
+      layout.addWidget(extra())  # the skill list first, options below
+      extra = None
+
     fields = fields_for(key)
     if fields or key == "general":
       card = QFrame()
@@ -181,12 +193,6 @@ class LiveSettingsScreen(QWidget):
         self._add_autostart(form)
       layout.addWidget(card)
 
-    extra = {
-      "voice": self._voice_tools,
-      "ai": self._ai_tools,
-      "developer": self._developer_tools,
-      "status": self._status_panel,
-    }.get(key)
     if extra is not None:
       layout.addWidget(extra())
     layout.addStretch(1)
@@ -445,6 +451,16 @@ class LiveSettingsScreen(QWidget):
       self.preview_state.setText(f"Preview failed: {error}")
     elif result is not None:
       self.preview_state.setText(result.message)
+
+  # --- Skills ------------------------------------------------------------------------------
+
+  def _skills_tools(self) -> QWidget:
+    if self.actions.skills is None:
+      return _muted("Skills are available when Ultron runs normally.")
+    from maira.ui.prototype.screens.skills_panel import SkillsPanel  # noqa: PLC0415
+
+    self.skills_panel = SkillsPanel(self.actions.skills)
+    return self.skills_panel
 
   # --- AI: models from Ollama --------------------------------------------------------------
 

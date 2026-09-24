@@ -27,6 +27,8 @@ from maira.modules.brain.streaming import TokenStreamer
 from maira.modules.memory.worker import MemoryWorker
 from maira.modules.planner.briefing import BriefingService
 from maira.modules.planner.chat import PlannerChat
+from maira.modules.skills.matcher import UnknownSkill
+from maira.modules.skills.service import PendingAction, SkillContext, SkillService
 from maira.shared.utils.latency import begin_trace, clear_trace, current_trace
 
 
@@ -62,6 +64,7 @@ class BrainService(Brain):
     desktop: DesktopController | None = None,
     planner: Planner | None = None,
     briefing: BriefingService | None = None,
+    skills: SkillService | None = None,
   ) -> None:
     self._llm = llm
     self._repo = repository
@@ -82,6 +85,9 @@ class BrainService(Brain):
     self._planner_chat = (
       PlannerChat(planner, briefing or BriefingService(planner, automation)) if planner is not None else None
     )
+    self._skills = skills
+    if skills is not None:
+      skills.set_notifier(self.announce)  # "skills installed" arrives later in chat
     # One message at a time: chat, voice and announcements share one session.
     self._turn_lock = threading.RLock()
     self._conversation = self._load_or_create_conversation()
@@ -128,6 +134,10 @@ class BrainService(Brain):
     if not cleaned:
       return
 
+    # Skills: "install skill owner/repo", "my skills", and yes/no to running a skill script.
+    if self._skills is not None and self._try_skill_command(cleaned, voice=voice):
+      return
+
     # Tasks and notes ("add task …", "what's pending", "done 2") — works by voice too.
     if self._planner_chat is not None and self._try_planner_from_chat(cleaned):
       return
@@ -143,6 +153,14 @@ class BrainService(Brain):
         logger.warning("Desktop controller not wired — play/open commands will use LLM only")
       elif self._try_desktop_from_chat(cleaned):
         return
+
+    skill: SkillContext | None = None
+    if self._skills is not None:
+      found = self._skills.select(cleaned, voice=voice)
+      if isinstance(found, UnknownSkill):
+        self._reply_locally(cleaned, self._skills.unknown_reply(found))
+        return
+      skill = found
 
     model_name = getattr(self._llm, "model", "") or ""
     trace = current_trace() or begin_trace(model=model_name)
@@ -182,6 +200,12 @@ class BrainService(Brain):
         }
       )
 
+    if skill is not None and self._skills is not None:
+      system_prompt = f"{skill.prompt}\n\n---\n\n{system_prompt}"
+      # Ollama's default context (2048–4096 tokens) would silently cut the skill off.
+      llm_options["num_ctx"] = self._skills.context_window
+      self._bus.publish("skill.used", {"name": skill.skill.name, "explicit": skill.explicit})
+
     trace.mark("context_done")
 
     llm_messages = self._build_llm_messages(
@@ -216,6 +240,11 @@ class BrainService(Brain):
       return
 
     full_response = "".join(chunks)
+    if skill is not None and self._skills is not None:
+      offer = self._skills.after_reply(skill, full_response)
+      if offer:
+        self._streamer.publish_token(offer)
+        full_response += offer
     assistant_message = self._session.add_assistant_message(full_response)
 
     with self._repo.transaction():
@@ -252,6 +281,76 @@ class BrainService(Brain):
       self._bus.publish("briefing.requested", {"speech": reply.speech})
     logger.info("Planner from chat: {}", reply.text.splitlines()[0])
     return True
+
+  def _try_skill_command(self, cleaned: str, *, voice: bool) -> bool:
+    assert self._skills is not None
+    try:
+      reply = self._skills.handle(cleaned)
+    except Exception:  # noqa: BLE001
+      logger.exception("Skill command failed; falling back to the LLM")
+      return False
+    if reply is None:
+      return False
+    if reply.action is not None:
+      self._run_skill_action(cleaned, reply.action, voice=voice)
+    else:
+      self._reply_locally(cleaned, reply.text)
+    return True
+
+  def _run_skill_action(self, cleaned: str, action: PendingAction, *, voice: bool) -> None:
+    """The user said yes: run the script (or install its package), then explain the output."""
+    assert self._skills is not None
+    self._streamer.publish_context({"query": cleaned, "memory_ids": [], "memory_titles": [], "char_count": 0})
+    if action.plan is not None:
+      self._streamer.publish_token(f"Running `{action.plan.display}`…\n\n")
+    elif action.package:
+      self._streamer.publish_token(f"Installing {action.package}…\n\n")
+    text, result = self._skills.run_action(action)
+    if result is None or action.plan is None:
+      self._streamer.publish_token(text)
+      self._finish_local(cleaned, text)
+      return
+
+    report = SkillService.format_result(action.plan.display, result)
+    self._streamer.publish_token(report)
+    reply = report
+    if self._llm.is_available():
+      context = self._skills.context_for(action.skill)
+      system_prompt = f"{context.prompt}\n\n---\n\n{MAIRA_VOICE_PROMPT if voice else MAIRA_IDENTITY_PROMPT}"
+      messages = self._build_llm_messages(system_prompt, recent_only=min(6, self._history_messages))
+      messages.append({"role": "user", "content": self._skills.followup_prompt(action.plan.display, result)})
+      explanation: list[str] = []
+      self._streamer.publish_token("\n\n")
+      try:
+        options = {"temperature": 0.3, "num_ctx": self._skills.context_window}
+        for token in self._llm.chat_stream(messages, options=options):
+          explanation.append(token)
+          self._streamer.publish_token(token)
+      except (LLMUnavailableError, LLMStreamError):
+        logger.warning("Could not explain the script output; showing it as is")
+      answer = "".join(explanation).strip()
+      if answer:
+        reply = f"{report}\n\n{answer}"
+        offer = self._skills.after_reply(context, answer)
+        if offer:
+          self._streamer.publish_token(offer)
+          reply += offer
+    self._finish_local(cleaned, reply)
+
+  def _finish_local(self, cleaned: str, reply: str) -> None:
+    """Save a turn whose reply was already streamed, then mark it complete."""
+    user_message = self._session.add_user_message(cleaned)
+    is_first_turn = len(self._session.get_messages()) == 1
+    assistant_message = self._session.add_assistant_message(reply)
+    with self._repo.transaction():
+      self._repo.add_message(self._conversation.id, user_message)
+      self._repo.add_message(self._conversation.id, assistant_message)
+      if is_first_turn and self._conversation.title == "New chat":
+        self._repo.update_title(self._conversation.id, _title_from_text(cleaned))
+        refreshed = self._repo.get_conversation(self._conversation.id)
+        if refreshed is not None:
+          self._conversation = refreshed
+    self._streamer.publish_complete(reply)
 
   def _reply_locally(self, cleaned: str, reply: str) -> None:
     """Answer without the LLM: save both turns and stream the reply."""

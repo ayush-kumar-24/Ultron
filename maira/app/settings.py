@@ -1,6 +1,6 @@
 """Typed application settings."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from maira.infrastructure.config.yaml_loader import deep_merge, load_yaml
 from maira.shared.utils.paths import default_config_path, user_config_path
@@ -110,6 +110,15 @@ class TaskSettings:
 
 
 @dataclass(frozen=True)
+class SkillSettings:
+  enabled: bool
+  auto_use: bool  # pick a matching skill without being asked
+  max_chars: int  # skill text added to the prompt
+  context_window: int  # Ollama num_ctx while a skill is active
+  script_timeout: int  # seconds per approved script run
+
+
+@dataclass(frozen=True)
 class Settings:
   app: AppSettings
   paths: PathSettings
@@ -122,6 +131,9 @@ class Settings:
   notifications: NotificationSettings
   briefing: BriefingSettings
   tasks: TaskSettings
+  skills: SkillSettings = field(
+    default_factory=lambda: SkillSettings(True, True, 6000, 8192, 120)
+  )
 
   @property
   def app_name(self) -> str:
@@ -144,6 +156,7 @@ def load_settings() -> Settings:
   notifications_raw = merged.get("notifications", {})
   briefing_raw = merged.get("briefing", {})
   tasks_raw = merged.get("tasks", {})
+  skills_raw = merged.get("skills", {})
   stt_raw = voice_raw.get("stt", {}) if isinstance(voice_raw.get("stt"), dict) else {}
   tts_raw = voice_raw.get("tts", {}) if isinstance(voice_raw.get("tts"), dict) else {}
   behavior_raw = voice_raw.get("behavior", {}) if isinstance(voice_raw.get("behavior"), dict) else {}
@@ -253,5 +266,12 @@ def load_settings() -> Settings:
     tasks=TaskSettings(
       remind_at_due=bool(tasks_raw.get("remind_at_due", True)),
       roll_over=bool(tasks_raw.get("roll_over", True)),
+    ),
+    skills=SkillSettings(
+      enabled=bool(skills_raw.get("enabled", True)),
+      auto_use=bool(skills_raw.get("auto_use", True)),
+      max_chars=max(1000, int(skills_raw.get("max_chars", 6000))),
+      context_window=max(2048, int(skills_raw.get("context_window", 8192))),
+      script_timeout=max(5, int(skills_raw.get("script_timeout", 120))),
     ),
   )

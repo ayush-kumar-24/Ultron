@@ -61,6 +61,32 @@ stored, so new defaults still reach you.
 
 Changes that need a restart show a **Restart now** bar.
 
+## Skills from any GitHub repo
+
+Ultron can adopt skills from GitHub. Type in chat (or use **Settings → Skills**):
+
+```
+install skill anthropics/skills
+install https://github.com/obra/superpowers
+install skill https://github.com/anthropics/skills/tree/main/skills/pdf   (just one folder)
+jazzband/prettytable skill install karo                                   (any repo works)
+```
+
+- **What it understands:** every `SKILL.md` ([Agent Skills](https://agentskills.io) standard),
+  Claude-style slash commands (`.claude/commands`, plugin `commands/`, `.github/prompts`), and for
+  any other repo its README plus `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` / `llms.txt` / Cursor rules.
+- **Using them:** just ask ("merge these two pdf files") and the matching skill is used, or call
+  one by name: `/pdf merge a.pdf b.pdf`, "use the pdf skill to …". A small pop-up shows which skill
+  was used. The skill's instructions go into the prompt, and Ollama's context is raised to fit them.
+- **Managing:** "my skills", "update skills", "remove skills anthropics/skills", "turn off skill pdf".
+- **Scripts are off by default.** A skill's scripts can run only after you allow them for that
+  skill in Settings → Skills (you see a safety check first), and Ultron still asks before every run
+  ("Run `python scripts/x.py`? Say run / haan"). Only that skill's own script files can run, with a
+  time limit and no shell. If a script needs a Python package, Ultron offers to install it into a
+  separate environment for that skill, so Ultron's own libraries are never touched. An update that
+  changes a skill's scripts turns its permission off again.
+- Downloads use `git` when installed, otherwise the GitHub zip. Skills live in `data/skills/`.
+
 ## Better voices (optional)
 
 Kokoro is built in. Two higher-quality local voices can be installed, each in

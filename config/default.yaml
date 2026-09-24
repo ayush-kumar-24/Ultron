@@ -124,3 +124,15 @@ tasks:
   remind_at_due: true
   # Unfinished tasks from earlier days move to today.
   roll_over: true
+
+# Skills adopted from GitHub repos ("install skill anthropics/skills").
+skills:
+  enabled: true
+  # Use a matching skill automatically (otherwise only "/name ..." or "use <name> skill").
+  auto_use: true
+  # Characters of skill instructions added to the prompt.
+  max_chars: 6000
+  # Ollama context size while a skill is active (the default 2048-4096 would cut it off).
+  context_window: 8192
+  # Seconds an approved skill script may run.
+  script_timeout: 120

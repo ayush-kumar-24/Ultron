@@ -19,6 +19,7 @@ CATEGORIES: list[tuple[str, str]] = [
   ("briefing", "Daily briefing"),
   ("tasks", "Tasks & reminders"),
   ("control", "Desktop control"),
+  ("skills", "Skills"),
   ("developer", "Developer"),
   ("status", "System status"),
 ]
@@ -145,6 +146,18 @@ FIELDS: list[Field] = [
   Field("desktop.enabled", "Let Ultron open apps and websites", "bool", "control", lambda s: s.desktop.enabled),
   Field("desktop.allow_input", "Let Ultron type and click", "bool", "control", lambda s: s.desktop.allow_input),
   # --- Developer -----------------------------------------------------------------------
+  # --- Skills (applied at once) ---------------------------------------------------
+  Field("skills.enabled", "Use installed skills", "bool", "skills", lambda s: s.skills.enabled, restart=False),
+  Field("skills.auto_use", "Pick a matching skill automatically", "bool", "skills", lambda s: s.skills.auto_use,
+        help='Off: skills run only when asked, like "/pdf merge a.pdf b.pdf".', restart=False),
+  Field("skills.max_chars", "Skill instructions sent to the AI", "int", "skills", lambda s: s.skills.max_chars,
+        minimum=1000, maximum=40000, step=1000, help="Characters. More is more complete but slower.",
+        restart=False),
+  Field("skills.context_window", "AI context size with a skill", "int", "skills",
+        lambda s: s.skills.context_window, minimum=2048, maximum=131072, step=2048,
+        help="Tokens. 8192 fits most skills; bigger needs more memory.", restart=False),
+  Field("skills.script_timeout", "Script time limit", "int", "skills", lambda s: s.skills.script_timeout,
+        minimum=5, maximum=3600, step=5, help="Seconds an approved script may run.", restart=False),
   Field("voice.warmup", "Pre-load voice models at start", "bool", "developer", lambda s: s.voice.warmup),
   Field("memory.background_encoding", "Save memories in the background", "bool", "developer",
         lambda s: s.memory.background_encoding),
