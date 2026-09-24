@@ -42,6 +42,10 @@ class MockStore(QObject):
     self.force_empty: set[str] = set()
     self.force_error: str | None = None
     self.stream_index = 0
+    # Live mode replaces the demo search / commands / quick actions.
+    self._live_search = None
+    self._live_commands: list[dict[str, Any]] | None = None
+    self._live_quick_actions: list[dict[str, Any]] | None = None
 
   def next_id(self, prefix: str) -> str:
     return f"{prefix}{next(self._ids)}"
@@ -217,7 +221,14 @@ class MockStore(QObject):
         item["state"] = "Offline" if offline else "Ready"
     self.changed.emit("status")
 
+  def set_live(self, *, search=None, commands=None, quick_actions=None) -> None:
+    self._live_search = search
+    self._live_commands = commands
+    self._live_quick_actions = quick_actions
+
   def search(self, query: str, category: str = "Everything") -> list[dict[str, Any]]:
+    if self._live_search is not None:
+      return self._live_search(query, category)
     q = query.strip().lower()
     results = MOCK_SEARCH_RESULTS
     if category not in ("Everything", "All", ""):
@@ -231,10 +242,10 @@ class MockStore(QObject):
     return results
 
   def commands(self) -> list[dict[str, Any]]:
-    return list(MOCK_COMMANDS)
+    return list(self._live_commands if self._live_commands is not None else MOCK_COMMANDS)
 
   def quick_actions(self) -> list[dict[str, Any]]:
-    return list(MOCK_QUICK_ACTIONS)
+    return list(self._live_quick_actions if self._live_quick_actions is not None else MOCK_QUICK_ACTIONS)
 
   def error_copy(self, key: str) -> dict[str, str]:
     return dict(MOCK_ERRORS.get(key, MOCK_ERRORS["general"]))

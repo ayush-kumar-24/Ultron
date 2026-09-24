@@ -64,6 +64,13 @@ _STRIP_LEAD = re.compile(
   re.I,
 )
 
+# Reminder phrasing anywhere in the sentence ("every day at 8am remind me to …").
+_REMIND_PHRASE = re.compile(
+  r"\b(?:remind\s+me(?:\s+to)?|set\s+a\s+reminder(?:\s+to)?|"
+  r"yaad\s+dila(?:na|\s+dena)?)\b",
+  re.I,
+)
+
 _KNOWN_URLS = {
   "youtube": "https://www.youtube.com",
   "gmail": "https://mail.google.com",
@@ -99,8 +106,26 @@ class ParsedSchedule:
   confirmation: str
 
 
+# "remind me …" / "yaad dila …" always means a pop-up, never an AI task.
+_REMINDER_INTENT = re.compile(r"(?i)\b(remind|reminder|yaad|notify|notification)\b")
+# Only explicit "schedule / automate …" hands the instruction to the AI.
+_AGENT_INTENT = re.compile(r"(?i)\b(schedule|automate)\b")
+
+
+_DOTTED_AMPM = re.compile(r"(?i)\b([ap])\.\s?m\b\.?")
+
+
+_DOTTED_CLOCK = re.compile(r"(?i)\b(\d{1,2})\.(\d{2})(\s*[ap]m)\b")
+
+
+def normalize_ampm(text: str) -> str:
+  """'6 p.m.' → '6 pm' and '9.30 am' → '9:30 am', so time parsing sees one form."""
+  text = _DOTTED_AMPM.sub(lambda m: m.group(1).lower() + "m", text or "")
+  return _DOTTED_CLOCK.sub(r"\1:\2\3", text)
+
+
 def looks_like_schedule_request(text: str) -> bool:
-  return bool(_SCHEDULE_HINT.search(text or ""))
+  return bool(_SCHEDULE_HINT.search(normalize_ampm(text)))
 
 
 def parse_schedule_request(
@@ -109,7 +134,7 @@ def parse_schedule_request(
   now: datetime | None = None,
 ) -> ParsedSchedule | None:
   """Return a ParsedSchedule when the message clearly asks to run something later."""
-  cleaned = " ".join((text or "").strip().split())
+  cleaned = " ".join(normalize_ampm(text).strip().split())
   if not cleaned or not looks_like_schedule_request(cleaned):
     return None
 
@@ -138,6 +163,12 @@ def parse_schedule_request(
       return None
 
   action_type, payload = infer_action(instruction)
+  if _REMINDER_INTENT.search(cleaned) or (
+    action_type == AutomationActionType.AGENT and not _AGENT_INTENT.search(cleaned)
+  ):
+    # "remind me to drink water in 1 minute" / "drink water in 10 minutes"
+    action_type = AutomationActionType.NOTIFY
+    payload = {"message": instruction}
   # Bare "remind" / "Reminder" → toast notify with a clear message.
   if action_type == AutomationActionType.NOTIFY and instruction.lower() in {
     "remind",
@@ -149,11 +180,11 @@ def parse_schedule_request(
 
   title = _title_from(instruction)
   when_label = _format_when(run_at, recurrence)
-  confirmation = (
-    f"Ho gaya — \"{title}\" schedule kar diya hai for {when_label}. "
-    f"Automations tab mein dikhega. "
-    f"Maira open rahe toh usi time pe chalega."
-  )
+  if action_type == AutomationActionType.NOTIFY:
+    confirmation = f"Ho gaya — \"{title}\" ka reminder {when_label} pe aayega."
+  else:
+    confirmation = f"Ho gaya — \"{title}\" schedule kar diya hai for {when_label}."
+  confirmation += " Window band kar do toh bhi chalega — Ultron tray mein rehta hai."
   return ParsedSchedule(
     title=title,
     instruction=instruction,
@@ -251,6 +282,7 @@ def _parse_run_at(text: str, now: datetime) -> datetime | None:
 
 def _extract_instruction(text: str) -> str:
   cleaned = _STRIP_LEAD.sub("", text).strip()
+  cleaned = _REMIND_PHRASE.sub(" ", cleaned)
   cleaned = _RELATIVE_RE.sub(" ", cleaned)
   cleaned = _BAAD_RE.sub(" ", cleaned)
   cleaned = _EVERY_DAY_RE.sub(" ", cleaned)
@@ -264,12 +296,15 @@ def _extract_instruction(text: str) -> str:
     flags=re.I,
   )
   cleaned = re.sub(
-    r"\b(to|for|please|kar\s+dena|karna|ko|subah|shaam|baje)\b",
+    r"\b(please|kar\s+dena|karna|ko|subah|shaam|baje)\b",
     " ",
     cleaned,
     flags=re.I,
   )
   cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-")
+  # Drop a dangling "to" / "for" left by time removal ("in 5 min to …"),
+  # but keep it mid-sentence ("go to gym").
+  cleaned = re.sub(r"^(?:to|for)\b\s*|\s+(?:to|for)$", "", cleaned, flags=re.I).strip(" ,.-")
   return cleaned
 
 
@@ -280,7 +315,8 @@ def _title_from(instruction: str) -> str:
   title = " ".join(words[:8])
   if len(words) > 8:
     title += "…"
-  return title[:60]
+  title = title[:60]
+  return title[:1].upper() + title[1:]
 
 
 def _format_when(run_at: datetime, recurrence: AutomationRecurrence) -> str:

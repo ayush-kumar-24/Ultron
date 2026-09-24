@@ -81,6 +81,10 @@ def draw_icon(painter: QPainter, name: str, rect: QRectF, color: QColor) -> None
     painter.drawRoundedRect(QRectF(cx - s * 0.35, cy - s, s * 0.7, s * 1.2), 6, 6)
     painter.drawArc(QRectF(cx - s * 0.7, cy - s * 0.2, s * 1.4, s * 1.1), 0 * 16, -180 * 16)
     painter.drawLine(QPointF(cx, cy + s * 0.9), QPointF(cx, cy + s))
+  elif name == "wave":
+    # Voice conversation: sound bars.
+    for ox, h in ((-0.75, 0.35), (-0.25, 0.8), (0.25, 0.55), (0.75, 0.25)):
+      painter.drawLine(QPointF(cx + s * ox, cy - s * h), QPointF(cx + s * ox, cy + s * h))
   elif name == "attach":
     painter.drawArc(QRectF(cx - s * 0.2, cy - s, s * 0.9, s * 1.1), 50 * 16, 260 * 16)
     painter.drawLine(QPointF(cx + s * 0.25, cy - s * 0.35), QPointF(cx + s * 0.25, cy + s * 0.45))

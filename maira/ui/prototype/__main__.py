@@ -20,7 +20,7 @@ from maira.ui.prototype.theme.stylesheet import build_stylesheet
 
 def main() -> int:
   app = QApplication.instance() or QApplication(sys.argv)
-  app.setApplicationName("Maira")
+  app.setApplicationName("Ultron")
   app.setStyleSheet(build_stylesheet())
 
   store = MockStore()

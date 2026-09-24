@@ -162,6 +162,13 @@ class AudioStream:
     import sounddevice as sd
 
     rate = sample_rate or self._sample_rate
+    if not getattr(self, "_logged_output", False):
+      self._logged_output = True
+      try:
+        device = sd.query_devices(kind="output")
+        logger.info("Playing voice on speaker: {}", device.get("name", device))
+      except Exception as exc:  # noqa: BLE001
+        logger.warning("No speaker found: {}", exc)
     sd.play(audio, samplerate=rate)
     sd.wait()
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+
 import re
 
 from loguru import logger
@@ -42,8 +44,9 @@ class WhisperEngine:
     if self._failed:
       return False
     try:
-      import faster_whisper  # noqa: F401
-
+      # Check the install without importing (the import is slow; warm_up loads it).
+      if importlib.util.find_spec("faster_whisper") is None:
+        raise ImportError("No module named 'faster_whisper'")
       return True
     except Exception as exc:  # noqa: BLE001
       logger.warning("Whisper unavailable: {}", exc)

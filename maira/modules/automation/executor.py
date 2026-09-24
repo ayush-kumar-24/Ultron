@@ -32,11 +32,13 @@ class AutomationExecutor:
     brain: Brain | None = None,
     desktop: DesktopController | None = None,
     on_notify: Callable[[str], None] | None = None,
+    on_reminder: Callable[[AutomationJob, str], None] | None = None,
   ) -> None:
     self._automation = automation
     self._brain = brain
     self._desktop = desktop
     self._on_notify = on_notify
+    self._on_reminder = on_reminder
 
   def run(self, job: AutomationJob) -> ExecutionResult:
     try:
@@ -77,7 +79,9 @@ class AutomationExecutor:
 
   def _notify(self, job: AutomationJob, payload: dict[str, Any]) -> ExecutionResult:
     message = str(payload.get("message") or job.instruction or job.title)
-    if self._on_notify:
+    if self._on_reminder:
+      self._on_reminder(job, message)
+    elif self._on_notify:
       self._on_notify(f"Automation: {message}")
     return ExecutionResult(True, message)
 

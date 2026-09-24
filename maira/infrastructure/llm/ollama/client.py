@@ -12,7 +12,7 @@ import httpx
 from maira.core.exceptions import LLMStreamError, LLMUnavailableError
 from maira.core.interfaces.llm import LLMProvider
 
-OLLAMA_UNAVAILABLE_USER_MESSAGE = "Maira can't reach the local AI model."
+OLLAMA_UNAVAILABLE_USER_MESSAGE = "Ultron can't reach the local AI model."
 
 
 class OllamaClient(LLMProvider):

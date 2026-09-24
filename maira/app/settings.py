@@ -1,6 +1,6 @@
 """Typed application settings."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from maira.infrastructure.config.yaml_loader import deep_merge, load_yaml
 from maira.shared.utils.paths import default_config_path, user_config_path
@@ -55,6 +55,12 @@ class VoiceSettings:
   tts_provider: str
   tts_engine: str
   tts_voice: str
+  # Chatterbox / Indic Parler (voice_envs, see scripts/setup_voice.py)
+  tts_device: str
+  tts_language: str
+  tts_reference_audio: str
+  tts_speaker: str
+  tts_exaggeration: float
   tts_lang: str
   allow_tts_fallback: bool
   language: str
@@ -76,6 +82,43 @@ class DesktopSettings:
 
 
 @dataclass(frozen=True)
+class BackgroundSettings:
+  close_to_tray: bool
+  start_minimized: bool
+
+
+@dataclass(frozen=True)
+class NotificationSettings:
+  enabled: bool
+  windows_toast: bool
+  snooze_minutes: int
+
+
+@dataclass(frozen=True)
+class BriefingSettings:
+  enabled: bool
+  time: str  # "HH:MM", local time
+  until: str  # after this, skip today's automatic briefing
+  speak: bool
+  name: str  # used in the greeting
+
+
+@dataclass(frozen=True)
+class TaskSettings:
+  remind_at_due: bool  # a task with a clock time gets a reminder then
+  roll_over: bool  # unfinished tasks from earlier days move to today
+
+
+@dataclass(frozen=True)
+class SkillSettings:
+  enabled: bool
+  auto_use: bool  # pick a matching skill without being asked
+  max_chars: int  # skill text added to the prompt
+  context_window: int  # Ollama num_ctx while a skill is active
+  script_timeout: int  # seconds per approved script run
+
+
+@dataclass(frozen=True)
 class Settings:
   app: AppSettings
   paths: PathSettings
@@ -84,6 +127,13 @@ class Settings:
   context: ContextSettings
   voice: VoiceSettings
   desktop: DesktopSettings
+  background: BackgroundSettings
+  notifications: NotificationSettings
+  briefing: BriefingSettings
+  tasks: TaskSettings
+  skills: SkillSettings = field(
+    default_factory=lambda: SkillSettings(True, True, 6000, 8192, 120)
+  )
 
   @property
   def app_name(self) -> str:
@@ -102,14 +152,20 @@ def load_settings() -> Settings:
   context_raw = merged.get("context", {})
   voice_raw = merged.get("voice", {})
   desktop_raw = merged.get("desktop", {})
+  background_raw = merged.get("background", {})
+  notifications_raw = merged.get("notifications", {})
+  briefing_raw = merged.get("briefing", {})
+  tasks_raw = merged.get("tasks", {})
+  skills_raw = merged.get("skills", {})
   stt_raw = voice_raw.get("stt", {}) if isinstance(voice_raw.get("stt"), dict) else {}
   tts_raw = voice_raw.get("tts", {}) if isinstance(voice_raw.get("tts"), dict) else {}
   behavior_raw = voice_raw.get("behavior", {}) if isinstance(voice_raw.get("behavior"), dict) else {}
   limits_raw = voice_raw.get("limits", {}) if isinstance(voice_raw.get("limits"), dict) else {}
 
+  # The nested `voice.tts.provider` wins: it is what users set in data/config.yaml.
   tts_provider = str(
-    voice_raw.get("tts_provider")
-    or tts_raw.get("provider")
+    tts_raw.get("provider")
+    or voice_raw.get("tts_provider")
     or voice_raw.get("tts_engine", "kokoro")
   )
   stt_provider = str(
@@ -161,6 +217,11 @@ def load_settings() -> Settings:
       tts_provider=tts_provider,
       tts_engine=str(voice_raw.get("tts_engine", tts_provider)),
       tts_voice=str(tts_raw.get("voice") or voice_raw.get("tts_voice", "af_heart")),
+      tts_device=str(tts_raw.get("device") or "auto"),
+      tts_language=str(tts_raw.get("language") or "auto"),
+      tts_reference_audio=str(tts_raw.get("reference_audio") or ""),
+      tts_speaker=str(tts_raw.get("speaker") or "Divya"),
+      tts_exaggeration=float(tts_raw.get("exaggeration", 0.5)),
       tts_lang=str(voice_raw.get("tts_lang", "a")),
       allow_tts_fallback=bool(voice_raw.get("allow_tts_fallback", False)),
       language=str(voice_raw.get("language") or ""),
@@ -185,5 +246,32 @@ def load_settings() -> Settings:
     desktop=DesktopSettings(
       enabled=bool(desktop_raw.get("enabled", True)),
       allow_input=bool(desktop_raw.get("allow_input", True)),
+    ),
+    background=BackgroundSettings(
+      close_to_tray=bool(background_raw.get("close_to_tray", True)),
+      start_minimized=bool(background_raw.get("start_minimized", False)),
+    ),
+    notifications=NotificationSettings(
+      enabled=bool(notifications_raw.get("enabled", True)),
+      windows_toast=bool(notifications_raw.get("windows_toast", True)),
+      snooze_minutes=max(1, int(notifications_raw.get("snooze_minutes", 10))),
+    ),
+    briefing=BriefingSettings(
+      enabled=bool(briefing_raw.get("enabled", True)),
+      time=str(briefing_raw.get("time", "08:00")),
+      until=str(briefing_raw.get("until", "12:00")),
+      speak=bool(briefing_raw.get("speak", True)),
+      name=str(briefing_raw.get("name") or ""),
+    ),
+    tasks=TaskSettings(
+      remind_at_due=bool(tasks_raw.get("remind_at_due", True)),
+      roll_over=bool(tasks_raw.get("roll_over", True)),
+    ),
+    skills=SkillSettings(
+      enabled=bool(skills_raw.get("enabled", True)),
+      auto_use=bool(skills_raw.get("auto_use", True)),
+      max_chars=max(1000, int(skills_raw.get("max_chars", 6000))),
+      context_window=max(2048, int(skills_raw.get("context_window", 8192))),
+      script_timeout=max(5, int(skills_raw.get("script_timeout", 120))),
     ),
   )

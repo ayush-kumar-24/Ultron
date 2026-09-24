@@ -37,6 +37,8 @@ class ProtoChatBridge(QObject):
     view.set_live_mode(True)
     view.send_requested.connect(self.send_message)
     view.new_chat_requested.connect(self.start_new_chat)
+    # Voice turns are saved by the brain; show them in chat when voice mode ends.
+    view.voice_toggled.connect(lambda on: None if on else self._hydrate())
     if hasattr(view, "error") and hasattr(view.error, "retry"):
       view.error.retry.connect(self.retry_last)
 

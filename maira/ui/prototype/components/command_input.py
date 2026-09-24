@@ -76,6 +76,7 @@ class _CommandEditor(QTextEdit):
 class CommandInput(QWidget):
   submitted = Signal(str, str)
   voice_clicked = Signal()
+  talk_clicked = Signal()
   attach_clicked = Signal()
   notice = Signal(str)
 
@@ -156,12 +157,15 @@ class CommandInput(QWidget):
     toolbar.addStretch(1)
 
     self.attach_btn = IconButton("attach", "Attach a file", size=32)
+    self.talk_btn = IconButton("wave", "Voice conversation — talk with Ultron (Ctrl+Shift+Space)", size=32)
     self.mic_btn = IconButton("mic", "Dictate — speak to type", size=32)
+    self.talk_btn.clicked.connect(self.talk_clicked.emit)
     self.send_btn = IconButton("send", "Send", size=32)
     self.attach_btn.clicked.connect(self.pick_files)
     self.mic_btn.clicked.connect(self.voice_clicked.emit)
     self.send_btn.clicked.connect(self._submit)
     toolbar.addWidget(self.attach_btn)
+    toolbar.addWidget(self.talk_btn)
     toolbar.addWidget(self.mic_btn)
     toolbar.addWidget(self.send_btn)
     root.addLayout(toolbar)

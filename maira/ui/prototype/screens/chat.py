@@ -23,43 +23,69 @@ from maira.ui.prototype.theme import tokens as t
 
 
 class ChatBubble(QFrame):
+  _USER_MAX_WIDTH = 560
+  _ASSISTANT_MAX_WIDTH = 680
+  _MARGIN_H = 14
+  _SPACING = 12
+
   def __init__(self, role: str, content: str, parent=None) -> None:
     super().__init__(parent)
     self.setObjectName("Card" if role == "assistant" else "ElevatedCard")
     layout = QHBoxLayout(self)
-    layout.setContentsMargins(14, 12, 14, 12)
-    layout.setSpacing(12)
+    layout.setContentsMargins(self._MARGIN_H, 12, self._MARGIN_H, 12)
+    layout.setSpacing(self._SPACING)
 
+    logo_space = 0
     if role == "assistant":
       logo = MairaLogo(size="small", glowing=False)
       layout.addWidget(logo, alignment=Qt.AlignmentFlag.AlignTop)
+      logo_space = max(logo.sizeHint().width(), logo.minimumWidth()) + self._SPACING
 
     col = QVBoxLayout()
     if role == "assistant":
-      name = QLabel("Maira")
+      name = QLabel("Ultron")
       name.setStyleSheet(f"color: {t.TEXT_MUTED}; font-size: 11px;")
       col.addWidget(name)
     self.body = QLabel(visible_text(content) if role == "user" else content)
     self.body.setWordWrap(True)
+    self.body.setTextFormat(Qt.TextFormat.PlainText)
     self.body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     self.body.setStyleSheet(f"color: {t.TEXT_PRIMARY}; font-size: 14px; line-height: 1.45;")
     col.addWidget(self.body)
     layout.addLayout(col, stretch=1)
 
     if role == "user":
-      self.setMaximumWidth(560)
+      self.setMaximumWidth(self._USER_MAX_WIDTH)
+      self._max_text_width = self._USER_MAX_WIDTH - 2 * self._MARGIN_H
     else:
-      self.setMaximumWidth(680)
+      self.setMaximumWidth(self._ASSISTANT_MAX_WIDTH)
+      self._max_text_width = self._ASSISTANT_MAX_WIDTH - 2 * self._MARGIN_H - logo_space
+    self._fit_text()
 
   def set_content(self, text: str) -> None:
     self.body.setText(text)
+    self._fit_text()
 
   def append_content(self, token: str) -> None:
     self.body.setText(self.body.text() + token)
+    self._fit_text()
+
+  def _fit_text(self) -> None:
+    # A word-wrapped QLabel in an aligned layout gets its one-line size hint,
+    # which clips long messages. Size the label from its text instead.
+    self.body.ensurePolished()
+    metrics = self.body.fontMetrics()
+    lines = self.body.text().split("\n") or [""]
+    natural = max(metrics.horizontalAdvance(line) for line in lines) + 2
+    width = max(1, min(natural, self._max_text_width))
+    self.body.setFixedWidth(width)
+    self.body.setFixedHeight(self.body.heightForWidth(width))
 
 
 class VoiceStage(QWidget):
   """Inline voice stage — hovering logo inside Chat."""
+
+  DEFAULT_HINT = "Bolo — aap rukoge toh Ultron jawab dega · Esc ya 〰 button se band karo"
 
   def __init__(self, parent=None) -> None:
     super().__init__(parent)
@@ -77,10 +103,37 @@ class VoiceStage(QWidget):
     )
     layout.addWidget(self.status)
 
-    self.hint = QLabel("Just talk — I'll reply when you pause · Esc or mic to leave")
+    self.you = QLabel("")
+    self.you.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    self.you.setWordWrap(True)
+    self.you.setStyleSheet(f"color: {t.TEXT_SECONDARY}; font-size: 14px;")
+    # Full width (no alignment flag): wrapped labels in aligned slots get clipped.
+    layout.addWidget(self.you)
+
+    self.reply = QLabel("")
+    self.reply.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    self.reply.setWordWrap(True)
+    self.reply.setStyleSheet(f"color: {t.TEXT_PRIMARY}; font-size: 15px;")
+    # Full width (no alignment flag): wrapped labels in aligned slots get clipped.
+    layout.addWidget(self.reply)
+
+    self.hint = QLabel(self.DEFAULT_HINT)
     self.hint.setObjectName("Muted")
     self.hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(self.hint)
+
+  def reset(self) -> None:
+    self.you.setText("")
+    self.reply.setText("")
+    self.hint.setText(self.DEFAULT_HINT)
+    self.set_state("Starting…")
+
+  def set_transcript(self, text: str) -> None:
+    self.you.setText(f"Aap: {text}" if text else "")
+    self.reply.setText("")
+
+  def set_reply(self, text: str) -> None:
+    self.reply.setText(text)
 
   def set_state(self, state: str) -> None:
     self.status.setText(state)
@@ -120,7 +173,7 @@ class ChatScreen(QWidget):
     root.setSpacing(12)
 
     header_row = QHBoxLayout()
-    self.header = PageHeader("Chat", "Private conversation with Maira")
+    self.header = PageHeader("Chat", "Private conversation with Ultron")
     self._title_label = self.header.findChildren(QLabel)[0]
     header_row.addWidget(self.header)
     header_row.addStretch(1)
@@ -152,7 +205,7 @@ class ChatScreen(QWidget):
     self.scroll.setWidget(self.thread)
     chat_layout.addWidget(self.scroll, stretch=1)
 
-    self.thinking = QLabel("Maira is thinking...")
+    self.thinking = QLabel("Ultron is thinking...")
     self.thinking.setObjectName("Muted")
     self.thinking.hide()
     chat_layout.addWidget(self.thinking)
@@ -168,9 +221,10 @@ class ChatScreen(QWidget):
     root.addWidget(self.stage, stretch=1)
 
     self.input = CommandInput(compact=True)
-    self.input.set_placeholder("Message Maira...")
+    self.input.set_placeholder("Message Ultron...")
     self.input.submitted.connect(self._on_submit)
     self.input.voice_clicked.connect(self._on_mic)
+    self.input.talk_clicked.connect(self.toggle_voice_mode)
     self.input.notice.connect(self.store.toast.emit)
     root.addWidget(self.input)
 
@@ -213,7 +267,7 @@ class ChatScreen(QWidget):
 
   def show_error(self, title: str, body: str | None = None) -> None:
     if body is None:
-      self.error.show_error("Maira hit a problem.", title)
+      self.error.show_error("Ultron hit a problem.", title)
     else:
       self.error.show_error(title, body)
 
@@ -319,14 +373,25 @@ class ChatScreen(QWidget):
     self.load_history(history)
 
   def toggle_voice_mode(self) -> None:
-    """Legacy spoken-mode entry — currently routes to ChatGPT-style dictation."""
-    self.toggle_dictation()
+    """Start or end the hands-free voice conversation."""
+    self.set_voice_mode(not self._voice_mode)
 
   def set_voice_mode(self, enabled: bool) -> None:
-    # Spoken conversation UI is parked; keep chat stage and use dictation instead.
     if enabled:
-      if not self._dictating:
-        self.toggle_dictation()
+      if self._voice_mode:
+        return
+      if not self._voice_backend:
+        self.store.toast.emit("Voice not ready yet")
+        return
+      if self._dictating:
+        self.voice_cancel.emit()
+        self.set_dictating(False)
+      self._voice_mode = True
+      self.voice_stage.reset()
+      self.stage.setCurrentWidget(self.voice_page)
+      self.input.talk_btn.set_active(True)
+      self.input.set_placeholder("Voice conversation on — Esc to stop")
+      self.voice_toggled.emit(True)
       return
     if self._dictating:
       self.voice_cancel.emit()
@@ -334,8 +399,9 @@ class ChatScreen(QWidget):
       self._voice_mode = False
       self.voice_toggled.emit(False)
     self.stage.setCurrentWidget(self.chat_page)
-    self.input.set_placeholder("Message Maira...")
+    self.input.set_placeholder("Message Ultron...")
     self.input.mic_btn.set_active(False)
+    self.input.talk_btn.set_active(False)
     self._dictating = False
 
   def toggle_dictation(self) -> None:
@@ -353,7 +419,7 @@ class ChatScreen(QWidget):
     if active:
       self.input.set_placeholder("Listening… tap mic again when done")
     else:
-      self.input.set_placeholder("Message Maira...")
+      self.input.set_placeholder("Message Ultron...")
 
   def set_placeholder_listening(self, active: bool) -> None:
     if active:

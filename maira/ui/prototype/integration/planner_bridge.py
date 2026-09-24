@@ -2,20 +2,49 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject
+from datetime import datetime
 
+from PySide6.QtCore import QObject, Signal
+
+from maira.core.bus.event_bus import EventBus
+from maira.core.domain.entities import Task
 from maira.core.domain.value_objects import Priority, TaskStatus
 from maira.core.interfaces.planner import Planner
+from maira.modules.automation.parser import LOCAL_TZ
+from maira.modules.planner.chat import format_due, is_overdue
 from maira.ui.prototype.screens.notes import NotesScreen
 from maira.ui.prototype.screens.tasks import TasksScreen
 
 
-def _task_section(status: TaskStatus) -> str:
-  return "Completed" if status == TaskStatus.DONE else "Today"
+def _task_section(task: Task, now: datetime) -> str:
+  if task.status == TaskStatus.DONE:
+    return "Completed"
+  if task.due_at is not None and task.due_at.astimezone(LOCAL_TZ).date() > now.date():
+    return "Upcoming"
+  return "Today"  # due today, overdue, or no date
+
+
+def _task_meta(task: Task, now: datetime) -> str:
+  parts = []
+  if task.due_at is not None:
+    due = format_due(task.due_at, now)
+    parts.append(f"{due[:1].upper()}{due[1:]}")
+  if is_overdue(task, now):
+    parts.append("Overdue")
+  return " · ".join(parts) or "No date"
 
 
 class ProtoPlannerBridge(QObject):
-  def __init__(self, planner: Planner, tasks: TasksScreen, notes: NotesScreen) -> None:
+  # Chat changes tasks on a worker thread; refresh the screens on the UI thread.
+  _changed = Signal()
+
+  def __init__(
+    self,
+    planner: Planner,
+    tasks: TasksScreen,
+    notes: NotesScreen,
+    event_bus: EventBus | None = None,
+  ) -> None:
     super().__init__()
     self._planner = planner
     self._tasks = tasks
@@ -30,17 +59,22 @@ class ProtoPlannerBridge(QObject):
     notes.save_requested.connect(self.save_note)
     notes.select_requested.connect(self.select_note)
 
+    self._changed.connect(self.refresh)
+    if event_bus is not None:
+      event_bus.subscribe("planner.changed", lambda _p: self._changed.emit())
+
     self.refresh()
 
   def refresh(self) -> None:
+    now = datetime.now(LOCAL_TZ)
     task_rows = []
     for task in self._planner.list_tasks():
       task_rows.append(
         {
           "id": task.id,
           "title": task.title,
-          "section": _task_section(task.status),
-          "time": task.priority.value.title(),
+          "section": _task_section(task, now),
+          "time": _task_meta(task, now),
           "done": task.status == TaskStatus.DONE,
           "priority": task.priority.value.title(),
         }

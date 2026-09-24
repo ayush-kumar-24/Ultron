@@ -5,6 +5,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from loguru import logger
+
 from maira.core.domain.entities import (
   AutomationJob,
   Conversation,
@@ -261,6 +263,17 @@ class TaskRepository:
     )
     return self.get(task_id)
 
+  def set_due(self, task_id: str, due_at: datetime | None) -> Task | None:
+    self._storage.execute(
+      """
+      UPDATE tasks
+      SET due_at = ?, updated_at = ?
+      WHERE id = ?
+      """,
+      (_to_iso(due_at) if due_at else None, _to_iso(_utc_now()), task_id),
+    )
+    return self.get(task_id)
+
   def set_priority(self, task_id: str, priority: Priority) -> Task | None:
     self._storage.execute(
       """
@@ -500,12 +513,24 @@ class MemoryRepository:
   def _row_to_memory(row: tuple) -> MemoryEntry:
     return MemoryEntry(
       id=str(row[0]),
-      category=MemoryCategory(str(row[1])),
+      category=parse_memory_category(row[1]),
       title=str(row[2]),
       body=str(row[3]),
       created_at=_from_iso(str(row[4])),
       updated_at=_from_iso(str(row[5])),
     )
+
+
+def parse_memory_category(raw: object) -> MemoryCategory:
+  """Read a stored category leniently; one odd row must never crash startup."""
+  value = str(raw or "").strip().lower()
+  for candidate in (value, value[:-1] if value.endswith("s") else value):
+    try:
+      return MemoryCategory(candidate)
+    except ValueError:
+      continue
+  logger.warning("Unknown memory category {!r}; treating as note", raw)
+  return MemoryCategory.NOTE
 
 
 class AutomationRepository:

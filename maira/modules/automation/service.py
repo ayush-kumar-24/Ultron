@@ -72,13 +72,32 @@ class AutomationService(Automation):
   ) -> AutomationJob | None:
     return self._repo.mark_ran(job_id, ok=ok, error=error, next_run_at=next_run_at)
 
-  def next_run_after(self, job: AutomationJob, from_time: datetime | None = None) -> datetime | None:
-    """Compute next fire time for recurring jobs."""
+  def next_run_after(
+    self,
+    job: AutomationJob,
+    from_time: datetime | None = None,
+    *,
+    now: datetime | None = None,
+  ) -> datetime | None:
+    """Next fire time for recurring jobs, always in the future.
+
+    If Ultron was closed for days, skip the missed runs instead of firing
+    once per missed day.
+    """
     base = from_time or job.run_at
     if base.tzinfo is None:
       base = base.replace(tzinfo=timezone.utc)
     if job.recurrence == AutomationRecurrence.DAILY:
-      return base + timedelta(days=1)
-    if job.recurrence == AutomationRecurrence.WEEKLY:
-      return base + timedelta(weeks=1)
-    return None
+      step = timedelta(days=1)
+    elif job.recurrence == AutomationRecurrence.WEEKLY:
+      step = timedelta(weeks=1)
+    else:
+      return None
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+      moment = moment.replace(tzinfo=timezone.utc)
+    nxt = base + step
+    if nxt <= moment:
+      missed = (moment - nxt) // step + 1
+      nxt += step * missed
+    return nxt
