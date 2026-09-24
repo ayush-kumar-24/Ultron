@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+
 import tempfile
 import wave
 from collections.abc import Iterator
@@ -46,8 +48,11 @@ class KokoroEngine:
     if self._failed:
       return False
     try:
-      import kokoro  # noqa: F401
-
+      # find_spec checks the install without importing it: importing kokoro
+      # loads PyTorch, which can take minutes and would block the window.
+      # The real import happens in warm_up() on a background thread.
+      if importlib.util.find_spec("kokoro") is None:
+        raise ImportError("No module named 'kokoro'")
       return True
     except Exception as exc:  # noqa: BLE001
       if self._allow_fallback:
