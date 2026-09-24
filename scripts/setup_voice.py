@@ -19,10 +19,14 @@ import time
 
 from maira.infrastructure.speech.worker.engine import voice_env_dir, voice_env_python
 
-TORCH_VERSIONS = {"chatterbox": ("torch==2.6.0", "torchaudio==2.6.0"), "indic_parler": ("torch", "torchaudio")}
+# Versions each model is known to work with (Parler pins transformers 4.46.1, from the torch 2.5 era).
+TORCH_VERSIONS = {
+  "chatterbox": ("torch==2.6.0", "torchaudio==2.6.0"),
+  "indic_parler": ("torch==2.5.1", "torchaudio==2.5.1"),
+}
 PACKAGES = {
   "chatterbox": ["chatterbox-tts"],
-  "indic_parler": ["git+https://github.com/huggingface/parler-tts.git", "sentencepiece"],
+  "indic_parler": ["git+https://github.com/huggingface/parler-tts.git", "sentencepiece", "numpy<2"],
 }
 CUDA_INDEX = "https://download.pytorch.org/whl/cu124"
 
@@ -64,7 +68,7 @@ def main() -> int:
   torch_pkgs = list(TORCH_VERSIONS[args.voice])
   run(pip + torch_pkgs + (["--index-url", CUDA_INDEX] if gpu else []))
   print(f"4/4 Installing {args.voice} (can take several minutes)...")
-  run(pip + PACKAGES[args.voice] + ["numpy"])
+  run(pip + PACKAGES[args.voice] + list(TORCH_VERSIONS[args.voice]))  # keep torch pinned
 
   print("\nInstalled. Loading the model once (downloads a few GB the first time)...")
   from maira.infrastructure.speech.worker.engine import WorkerTTSEngine  # noqa: PLC0415
