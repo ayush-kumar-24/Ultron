@@ -249,10 +249,22 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
       lang_code=settings.voice.tts_lang,
       allow_fallback=settings.voice.allow_tts_fallback,
       max_model_download_gb=settings.voice.max_model_download_gb,
+      device=settings.voice.tts_device,
+      language=settings.voice.tts_language,
+      reference_audio=settings.voice.tts_reference_audio,
+      speaker=settings.voice.tts_speaker,
+      exaggeration=settings.voice.tts_exaggeration,
     )
-    if tts_provider.is_available()[0] and hasattr(tts_provider, "_engine"):
-      tts = TextToSpeech(tts_provider._engine, audio)  # noqa: SLF001
+    available, reason = tts_provider.is_available()
+    if available and hasattr(tts_provider, "_engine"):
+      engine = tts_provider._engine  # noqa: SLF001
+      logger.info("Voice: {}", tts_provider.get_provider_name())
+      if hasattr(engine, "close"):
+        lifecycle.on_shutdown(engine.close)
+      tts = TextToSpeech(engine, audio)
     else:
+      if settings.voice.tts_provider != "kokoro":
+        logger.warning("Voice '{}' unavailable ({}); using Kokoro", settings.voice.tts_provider, reason)
       tts_engine = KokoroEngine(
         voice=settings.voice.tts_voice,
         sample_rate=24000,

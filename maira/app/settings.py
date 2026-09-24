@@ -55,6 +55,12 @@ class VoiceSettings:
   tts_provider: str
   tts_engine: str
   tts_voice: str
+  # Chatterbox / Indic Parler (voice_envs, see scripts/setup_voice.py)
+  tts_device: str
+  tts_language: str
+  tts_reference_audio: str
+  tts_speaker: str
+  tts_exaggeration: float
   tts_lang: str
   allow_tts_fallback: bool
   language: str
@@ -143,9 +149,10 @@ def load_settings() -> Settings:
   behavior_raw = voice_raw.get("behavior", {}) if isinstance(voice_raw.get("behavior"), dict) else {}
   limits_raw = voice_raw.get("limits", {}) if isinstance(voice_raw.get("limits"), dict) else {}
 
+  # The nested `voice.tts.provider` wins: it is what users set in data/config.yaml.
   tts_provider = str(
-    voice_raw.get("tts_provider")
-    or tts_raw.get("provider")
+    tts_raw.get("provider")
+    or voice_raw.get("tts_provider")
     or voice_raw.get("tts_engine", "kokoro")
   )
   stt_provider = str(
@@ -197,6 +204,11 @@ def load_settings() -> Settings:
       tts_provider=tts_provider,
       tts_engine=str(voice_raw.get("tts_engine", tts_provider)),
       tts_voice=str(tts_raw.get("voice") or voice_raw.get("tts_voice", "af_heart")),
+      tts_device=str(tts_raw.get("device") or "auto"),
+      tts_language=str(tts_raw.get("language") or "auto"),
+      tts_reference_audio=str(tts_raw.get("reference_audio") or ""),
+      tts_speaker=str(tts_raw.get("speaker") or "Divya"),
+      tts_exaggeration=float(tts_raw.get("exaggeration", 0.5)),
       tts_lang=str(voice_raw.get("tts_lang", "a")),
       allow_tts_fallback=bool(voice_raw.get("allow_tts_fallback", False)),
       language=str(voice_raw.get("language") or ""),

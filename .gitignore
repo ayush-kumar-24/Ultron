@@ -38,3 +38,6 @@ voice_lab/.env
 # Voice lab generated audio (keep results structure)
 voice_lab/output/*.wav
 voice_lab/output/results.json
+
+# Separate Python environments for heavy voice models (scripts/setup_voice.py)
+voice_envs/

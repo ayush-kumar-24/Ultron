@@ -41,6 +41,27 @@ pip install -e ".[desktop]"
 - Only one Ultron runs at a time; launching it again just brings the window forward.
 - Settings live under `background:` and `notifications:` in `config/default.yaml` (override in `data/config.yaml`).
 
+## Better voices (optional)
+
+Kokoro is built in. Two higher-quality local voices can be installed, each in
+its own environment (their libraries conflict with each other):
+
+| Voice | Why | Install |
+|---|---|---|
+| **Chatterbox Multilingual** (Resemble AI, MIT) | Most natural; Hindi; any voice from a 5–15 s sample | `python -m scripts.setup_voice chatterbox` |
+| **Indic Parler-TTS** (AI4Bharat, Apache 2.0) | Indian speakers (Divya, Leela, …) | `python -m scripts.setup_voice indic_parler` |
+
+An NVIDIA GPU is used automatically; on CPU they work but are slower.
+Listen first: `python -m scripts.test_voice --provider chatterbox`. Then select it in `data\config.yaml`:
+
+```yaml
+voice:
+  tts:
+    provider: chatterbox        # or indic_parler
+    reference_audio: "C:/Users/you/voice.wav"   # chatterbox: optional voice sample
+    speaker: Divya              # indic_parler
+```
+
 ## Voice docs
 
 - [docs/VOICE_ARCHITECTURE.md](docs/VOICE_ARCHITECTURE.md)

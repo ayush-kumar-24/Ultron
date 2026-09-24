@@ -68,9 +68,18 @@ voice:
     device: cpu
     beam_size: 5
   tts:
+    # kokoro (built in) | chatterbox | indic_parler
+    # chatterbox / indic_parler: install once with  python -m scripts.setup_voice <name>
     provider: kokoro
     voice: af_heart
     speed: 1.0
+    device: auto          # auto = NVIDIA GPU if present, else CPU
+    # chatterbox only
+    language: auto        # auto | hi | en  (auto: hi for Devanagari text, else en)
+    reference_audio: ""   # optional 5-15 s .wav of the voice you want (e.g. a female Hindi speaker)
+    exaggeration: 0.5     # expressiveness 0.25-1.0
+    # indic_parler only
+    speaker: Divya        # e.g. Divya, Leela, Maya, Sita (see the ai4bharat/indic-parler-tts model card)
   behavior:
     auto_speak: true
     interrupt_on_speech: true
