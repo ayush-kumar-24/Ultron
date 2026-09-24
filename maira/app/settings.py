@@ -98,6 +98,12 @@ class BriefingSettings:
 
 
 @dataclass(frozen=True)
+class TaskSettings:
+  remind_at_due: bool  # a task with a clock time gets a reminder then
+  roll_over: bool  # unfinished tasks from earlier days move to today
+
+
+@dataclass(frozen=True)
 class Settings:
   app: AppSettings
   paths: PathSettings
@@ -109,6 +115,7 @@ class Settings:
   background: BackgroundSettings
   notifications: NotificationSettings
   briefing: BriefingSettings
+  tasks: TaskSettings
 
   @property
   def app_name(self) -> str:
@@ -130,6 +137,7 @@ def load_settings() -> Settings:
   background_raw = merged.get("background", {})
   notifications_raw = merged.get("notifications", {})
   briefing_raw = merged.get("briefing", {})
+  tasks_raw = merged.get("tasks", {})
   stt_raw = voice_raw.get("stt", {}) if isinstance(voice_raw.get("stt"), dict) else {}
   tts_raw = voice_raw.get("tts", {}) if isinstance(voice_raw.get("tts"), dict) else {}
   behavior_raw = voice_raw.get("behavior", {}) if isinstance(voice_raw.get("behavior"), dict) else {}
@@ -229,5 +237,9 @@ def load_settings() -> Settings:
       until=str(briefing_raw.get("until", "12:00")),
       speak=bool(briefing_raw.get("speak", True)),
       name=str(briefing_raw.get("name") or ""),
+    ),
+    tasks=TaskSettings(
+      remind_at_due=bool(tasks_raw.get("remind_at_due", True)),
+      roll_over=bool(tasks_raw.get("roll_over", True)),
     ),
   )

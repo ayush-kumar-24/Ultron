@@ -26,6 +26,12 @@ class TodoService:
       raise ValueError("Task title cannot be empty")
     return self._repo.create(cleaned, priority=priority, due_at=due_at)
 
+  def get(self, task_id: str) -> Task | None:
+    return self._repo.get(task_id)
+
+  def set_due(self, task_id: str, due_at: datetime | None) -> Task | None:
+    return self._repo.set_due(task_id, due_at)
+
   def set_status(self, task_id: str, status: TaskStatus) -> Task | None:
     return self._repo.set_status(task_id, status)
 

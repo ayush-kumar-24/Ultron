@@ -108,3 +108,10 @@ briefing:
   speak: true
   # Your name for the greeting ("Good morning, Ayush!")
   name: ""
+
+# Tasks and reminders work together.
+tasks:
+  # "add task call mom at 6pm" also reminds you at 6 PM (Done on it completes the task).
+  remind_at_due: true
+  # Unfinished tasks from earlier days move to today.
+  roll_over: true

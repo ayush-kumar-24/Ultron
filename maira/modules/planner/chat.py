@@ -99,7 +99,11 @@ class PlannerChat:
     if task.priority == Priority.HIGH:
       details.append("high priority")
     suffix = f" ({', '.join(details)})" if details else ""
-    return PlannerReply(f'Task add ho gaya: "{task.title}"{suffix}.', changed=True)
+    text = f'Task add ho gaya: "{task.title}"{suffix}.'
+    has_reminder = getattr(self._planner, "has_reminder", None)
+    if callable(has_reminder) and has_reminder(task):
+      text += " Time pe reminder aayega."
+    return PlannerReply(text, changed=True)
 
   def _list(self, intent: PlannerIntent, now: datetime) -> PlannerReply:
     open_tasks = [t for t in self._planner.list_tasks() if t.status == TaskStatus.OPEN]

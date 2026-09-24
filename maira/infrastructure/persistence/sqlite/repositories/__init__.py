@@ -263,6 +263,17 @@ class TaskRepository:
     )
     return self.get(task_id)
 
+  def set_due(self, task_id: str, due_at: datetime | None) -> Task | None:
+    self._storage.execute(
+      """
+      UPDATE tasks
+      SET due_at = ?, updated_at = ?
+      WHERE id = ?
+      """,
+      (_to_iso(due_at) if due_at else None, _to_iso(_utc_now()), task_id),
+    )
+    return self.get(task_id)
+
   def set_priority(self, task_id: str, priority: Priority) -> Task | None:
     self._storage.execute(
       """

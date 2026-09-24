@@ -31,6 +31,12 @@ class PlannerService(Planner):
   ) -> Task:
     return self._todos.add_task(title, priority=priority, due_at=due_at)
 
+  def get_task(self, task_id: str) -> Task | None:
+    return self._todos.get(task_id)
+
+  def set_task_due(self, task_id: str, due_at: datetime | None) -> Task | None:
+    return self._todos.set_due(task_id, due_at)
+
   def set_task_status(self, task_id: str, status: TaskStatus) -> Task | None:
     return self._todos.set_status(task_id, status)
 

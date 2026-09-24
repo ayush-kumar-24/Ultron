@@ -138,12 +138,22 @@ class NotificationService:
       title += SNOOZE_SUFFIX
     message = notification.body.split("\nMissed at ")[0]
     run_at = self._clock() + self._snooze
+    payload = {"message": message}
+    # Keep links such as the task id, so "Done" on the snoozed one still works.
+    original = self._automation.get(notification.job_id) if notification.job_id else None
+    if original is not None:
+      try:
+        extra = json.loads(original.action_payload or "{}")
+      except json.JSONDecodeError:
+        extra = {}
+      if isinstance(extra, dict):
+        payload = {**extra, "message": message}
     self._automation.create(
       title,
       message,
       run_at,
       action_type=AutomationActionType.NOTIFY,
-      action_payload=json.dumps({"message": message}),
+      action_payload=json.dumps(payload),
     )
     self._publish("automation.changed", None)
     return f"Snoozed for {self.snooze_minutes} min: {notification.title}"

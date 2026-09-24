@@ -49,6 +49,7 @@ from maira.modules.notifications.service import NotificationService
 from maira.modules.planner.briefing import Briefing, BriefingService
 from maira.modules.planner.briefing.runner import BriefingRunner
 from maira.modules.planner.briefing.schedule import BriefingSchedule, parse_clock
+from maira.modules.planner.reminders import LinkedPlanner
 from maira.modules.planner.service import PlannerService
 from maira.modules.voice.service import VoiceService
 from maira.modules.voice.stt import SpeechToText
@@ -121,9 +122,18 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
   container.register_instance("note_repository", note_repository)
   container.register_instance("memory_repository", memory_repository)
   container.register_instance("automation_repository", automation_repository)
-  container.register_instance("planner", PlannerService(task_repository, note_repository))
   automation = AutomationService(automation_repository)
   container.register_instance("automation", automation)
+  # Every task change (chat, voice, Tasks screen) keeps its reminder in sync.
+  container.register_instance(
+    "planner",
+    LinkedPlanner(
+      PlannerService(task_repository, note_repository),
+      automation,
+      remind_at_due=settings.tasks.remind_at_due,
+      roll_over_enabled=settings.tasks.roll_over,
+    ),
+  )
   container.register_instance(
     "notifications",
     NotificationService(
@@ -400,6 +410,36 @@ def _setup_briefing(
   container.register_instance("briefing_runner", runner)
 
 
+def _setup_task_links(qt_app: QApplication, container: Container, lifecycle: Lifecycle) -> None:
+  """Reminder "Done" completes its task; unfinished tasks move to today."""
+  from PySide6.QtCore import QTimer  # noqa: PLC0415
+
+  planner: LinkedPlanner = container.resolve("planner")
+  event_bus: EventBus = container.resolve("event_bus")
+
+  def on_reminder_done(payload) -> None:
+    task = planner.complete_from_job((payload or {}).get("job_id"))
+    if task is not None:
+      event_bus.publish("planner.changed", {"reason": "reminder"})
+      event_bus.publish("automation.notify", {"message": f'Task done: "{task.title}"'})
+
+  event_bus.subscribe("notification.done", on_reminder_done)
+
+  def roll_over() -> None:
+    try:
+      if planner.roll_over():
+        event_bus.publish("planner.changed", {"reason": "roll_over"})
+    except Exception:  # noqa: BLE001
+      logger.exception("Moving unfinished tasks failed")
+
+  roll_over()  # before the first briefing
+  timer = QTimer(qt_app)
+  timer.setInterval(10 * 60 * 1000)  # catches midnight within 10 minutes
+  timer.timeout.connect(roll_over)
+  timer.start()
+  lifecycle.on_shutdown(timer.stop)
+
+
 def bootstrap(argv: list[str] | None = None) -> AppContext | None:
   """Build the app. Returns None when another instance is already running."""
   args = list(sys.argv[1:] if argv is None else argv)
@@ -425,6 +465,7 @@ def bootstrap(argv: list[str] | None = None) -> AppContext | None:
   tray = _setup_background(qt_app, container, settings, window, lifecycle)
   guard.activation_requested.connect(window.bring_to_front)
   guard.replace_requested.connect(qt_app.quit)
+  _setup_task_links(qt_app, container, lifecycle)
   _setup_briefing(container, settings, lifecycle, tray)
 
   start_hidden = tray is not None and (background or settings.background.start_minimized)
