@@ -41,6 +41,26 @@ pip install -e ".[desktop]"
 - Only one Ultron runs at a time; launching it again just brings the window forward.
 - Settings live under `background:` and `notifications:` in `config/default.yaml` (override in `data/config.yaml`).
 
+## Settings (in the app)
+
+Open **Settings** in the sidebar (or the command palette → *System status*). Every
+change saves to `data/config.yaml` right away; only the values you change are
+stored, so new defaults still reach you.
+
+| Page | What you can change |
+|---|---|
+| General | Your name (applies instantly), keep running in the tray, start hidden, Start with Windows |
+| Voice | Engine (Kokoro / Chatterbox / Indic Parler), voice or speaker, pronunciation, voice sample, expressiveness, CPU/GPU, reply length — plus **Install** and **Preview** |
+| Listening | Whisper model, language, pause length, interrupt while speaking |
+| AI model | Ollama model (list from Ollama), host, chat memory length, recall mode |
+| Daily briefing | On/off, time, latest time, spoken |
+| Tasks & reminders | Remind at due time, roll over, pop-ups, snooze length |
+| Desktop control | Allow app/window control and typing |
+| Developer | Model preloading, timing logs, open settings file / data / logs, test notification, reset all, diagnostics |
+| System status | Ollama, voice, speech recognition, microphone, notifications, Start with Windows |
+
+Changes that need a restart show a **Restart now** bar.
+
 ## Better voices (optional)
 
 Kokoro is built in. Two higher-quality local voices can be installed, each in
@@ -52,7 +72,8 @@ its own environment (their libraries conflict with each other):
 | **Indic Parler-TTS** (AI4Bharat, Apache 2.0) | Indian speakers (Divya, Leela, …) | `python -m scripts.setup_voice indic_parler` |
 
 An NVIDIA GPU is used automatically; on CPU they work but are slower.
-Listen first: `python -m scripts.test_voice --provider chatterbox`. Then select it in `data\config.yaml`:
+Easiest: **Settings → Voice** → pick the engine → **Install** → **Preview** → **Restart now**.
+From a terminal instead: `python -m scripts.test_voice --provider chatterbox`, then select it in `data\config.yaml`:
 
 ```yaml
 voice:

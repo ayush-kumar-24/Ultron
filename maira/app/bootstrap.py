@@ -10,6 +10,7 @@ from loguru import logger
 from PySide6.QtWidgets import QApplication
 
 from maira.app.container import Container
+from maira.app.restart import restart_app
 from maira.app.lifecycle import Lifecycle
 from maira.app.settings import Settings, load_settings
 from maira.app.single_instance import SingleInstanceGuard
@@ -135,6 +136,10 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
     ),
   )
   container.register_instance(
+    "briefing",
+    BriefingService(container.resolve("planner"), automation, name=settings.briefing.name),
+  )
+  container.register_instance(
     "notifications",
     NotificationService(
       automation,
@@ -190,6 +195,7 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
       automation=container.resolve("automation"),
       desktop=container.resolve("desktop"),
       planner=container.resolve("planner"),
+      briefing=container.resolve("briefing"),
     )
 
   container.register("brain", brain_factory)
@@ -315,7 +321,7 @@ def _setup_background(
 
   tray: TrayController | None = None
   if TrayController.is_supported():
-    autostart = AutostartManager(settings.app_name)
+    autostart: AutostartManager = container.resolve("autostart")
     autostart.refresh()
     tray = TrayController(icon, app_name=settings.app_name, autostart=autostart)
     tray.open_requested.connect(window.bring_to_front)
@@ -387,9 +393,7 @@ def _setup_briefing(
   """Show the daily briefing once a day in chat, as a notification, and aloud."""
   from datetime import time  # noqa: PLC0415
 
-  briefing = BriefingService(
-    container.resolve("planner"), container.resolve("automation"), name=settings.briefing.name
-  )
+  briefing: BriefingService = container.resolve("briefing")
   schedule = BriefingSchedule(
     data_dir() / "briefing_state.json",
     at=parse_clock(settings.briefing.time, time(8, 0)),
@@ -472,6 +476,10 @@ def bootstrap(argv: list[str] | None = None) -> AppContext | None:
   lifecycle.on_shutdown(guard.release)
 
   _register_services(container, settings, lifecycle)
+  container.register_instance("lifecycle", lifecycle)
+  container.register_instance("restart", lambda: restart_app(qt_app, guard))
+  autostart = AutostartManager(settings.app_name)
+  container.register_instance("autostart", autostart)
 
   window = MainWindow(container=container, skip_onboarding=True)
   tray = _setup_background(qt_app, container, settings, window, lifecycle)

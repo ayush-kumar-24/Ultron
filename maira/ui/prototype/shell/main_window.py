@@ -128,11 +128,8 @@ class PrototypeWindow(QMainWindow):
     automation = container.resolve("automation")
     settings = container.resolve("settings")
 
-    # Prefer real profile name from settings if present
-    self.store.profile["name"] = getattr(settings.app, "name", None) or "Ayush"
-    if self.store.profile["name"] == "Ultron":
-      self.store.profile["name"] = "Ayush"
-    self.sidebar.set_profile_initial(self.store.greeting_name())
+    self._set_user_name(settings.briefing.name)
+    self._install_live_settings(container)
 
     chat = self.screens["chat"]
     self._bridges.append(
@@ -180,6 +177,33 @@ class PrototypeWindow(QMainWindow):
     except Exception:  # noqa: BLE001
       pass
     self.store.changed.emit("status")
+
+  def _set_user_name(self, name: str) -> None:
+    self.store.profile["name"] = name.strip() or "there"
+    self.sidebar.set_profile_initial(self.store.greeting_name())
+    self.store.changed.emit("profile")
+
+  def _install_live_settings(self, container: Container) -> None:
+    """Swap the demo Settings page for the real one (saves to data/config.yaml)."""
+    from maira.app.user_config import UserConfig  # noqa: PLC0415
+    from maira.ui.prototype.integration.settings_actions import build_settings_actions  # noqa: PLC0415
+    from maira.ui.prototype.screens.live_settings import LiveSettingsScreen  # noqa: PLC0415
+
+    def rename(name: str) -> None:
+      self._set_user_name(name)
+      try:
+        container.resolve("briefing").set_name(name)
+      except Exception:  # noqa: BLE001 — not registered in some tests
+        pass
+
+    actions = build_settings_actions(container, on_name_changed=rename)
+    live = LiveSettingsScreen(UserConfig(), actions)
+    old = self.screens["settings"]
+    index = self.stack.indexOf(old)
+    self.stack.removeWidget(old)
+    old.deleteLater()
+    self.stack.insertWidget(index, live)
+    self.screens["settings"] = live
 
   def set_close_handler(self, handler: Callable[[], bool] | None) -> None:
     """Handler returns True to hide the window instead of closing (tray mode)."""

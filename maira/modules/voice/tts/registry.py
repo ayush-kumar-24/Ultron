@@ -106,14 +106,18 @@ def _build_worker(
 ) -> TTSProvider:
   from maira.infrastructure.speech.worker.engine import WorkerTTSEngine
   from maira.modules.voice.tts.worker_provider import WorkerTTSProvider
+  from maira.modules.voice.voice_tools import engine_options
 
-  options: dict = {"device": device}
-  if name == "chatterbox":
-    options.update(language=language, exaggeration=exaggeration)
-    if reference_audio:
-      options["reference_audio"] = reference_audio
-  elif name == "indic_parler":
-    options["speaker"] = speaker
+  options = engine_options(
+    name,
+    {
+      "device": device,
+      "language": language,
+      "reference_audio": reference_audio,
+      "speaker": speaker,
+      "exaggeration": exaggeration,
+    },
+  )
   engine = WorkerTTSEngine(name, options=options, default_sample_rate=WORKER_DEFAULT_RATES[name])
   return WorkerTTSProvider(name, engine)
 

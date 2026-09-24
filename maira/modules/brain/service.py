@@ -61,6 +61,7 @@ class BrainService(Brain):
     automation: Automation | None = None,
     desktop: DesktopController | None = None,
     planner: Planner | None = None,
+    briefing: BriefingService | None = None,
   ) -> None:
     self._llm = llm
     self._repo = repository
@@ -79,7 +80,7 @@ class BrainService(Brain):
     self._automation = automation
     self._desktop = desktop
     self._planner_chat = (
-      PlannerChat(planner, BriefingService(planner, automation)) if planner is not None else None
+      PlannerChat(planner, briefing or BriefingService(planner, automation)) if planner is not None else None
     )
     # One message at a time: chat, voice and announcements share one session.
     self._turn_lock = threading.RLock()

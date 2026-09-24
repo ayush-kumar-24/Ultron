@@ -46,6 +46,10 @@ class BriefingService:
     self._automation = automation
     self._name = name.strip()
 
+  def set_name(self, name: str) -> None:
+    """Change the name used in greetings (Settings → Your name)."""
+    self._name = name.strip()
+
   def build(self, now: datetime | None = None) -> Briefing:
     now = (now or datetime.now(LOCAL_TZ)).astimezone(LOCAL_TZ)
     today = now.date()
