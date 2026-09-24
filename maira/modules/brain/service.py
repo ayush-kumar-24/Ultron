@@ -131,8 +131,8 @@ class BrainService(Brain):
     if self._planner_chat is not None and self._try_planner_from_chat(cleaned):
       return
 
-    # Timed automation from chat — confirm without a full LLM round-trip.
-    if not voice and self._automation is not None:
+    # Timed reminders ("remind me in 10 minutes to …") — chat and voice.
+    if self._automation is not None:
       if self._try_schedule_from_chat(cleaned):
         return
 

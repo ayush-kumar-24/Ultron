@@ -112,8 +112,20 @@ _REMINDER_INTENT = re.compile(r"(?i)\b(remind|reminder|yaad|notify|notification)
 _AGENT_INTENT = re.compile(r"(?i)\b(schedule|automate)\b")
 
 
+_DOTTED_AMPM = re.compile(r"(?i)\b([ap])\.\s?m\b\.?")
+
+
+_DOTTED_CLOCK = re.compile(r"(?i)\b(\d{1,2})\.(\d{2})(\s*[ap]m)\b")
+
+
+def normalize_ampm(text: str) -> str:
+  """'6 p.m.' → '6 pm' and '9.30 am' → '9:30 am', so time parsing sees one form."""
+  text = _DOTTED_AMPM.sub(lambda m: m.group(1).lower() + "m", text or "")
+  return _DOTTED_CLOCK.sub(r"\1:\2\3", text)
+
+
 def looks_like_schedule_request(text: str) -> bool:
-  return bool(_SCHEDULE_HINT.search(text or ""))
+  return bool(_SCHEDULE_HINT.search(normalize_ampm(text)))
 
 
 def parse_schedule_request(
@@ -122,7 +134,7 @@ def parse_schedule_request(
   now: datetime | None = None,
 ) -> ParsedSchedule | None:
   """Return a ParsedSchedule when the message clearly asks to run something later."""
-  cleaned = " ".join((text or "").strip().split())
+  cleaned = " ".join(normalize_ampm(text).strip().split())
   if not cleaned or not looks_like_schedule_request(cleaned):
     return None
 

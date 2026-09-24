@@ -74,6 +74,10 @@ class VoiceService(Voice):
   def status(self) -> VoiceStatus:
     return self._status
 
+  @property
+  def in_conversation(self) -> bool:
+    return self._conversation_active
+
   def last_latency(self) -> VoiceLatencyTrace | None:
     return self._last_latency
 

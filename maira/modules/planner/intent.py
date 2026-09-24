@@ -12,7 +12,7 @@ from datetime import datetime, time, timedelta
 from enum import Enum
 
 from maira.core.domain.value_objects import Priority
-from maira.modules.automation.parser import LOCAL_TZ, _parse_run_at
+from maira.modules.automation.parser import LOCAL_TZ, _parse_run_at, normalize_ampm
 
 # A due date without a clock time is stored at 23:59 local ("any time that day").
 DATE_ONLY_TIME = time(23, 59)
@@ -104,6 +104,8 @@ _WEEKDAY_RE = re.compile(r"\b(?:on\s+|this\s+|next\s+|by\s+)?(" + "|".join(_WEEK
 
 # Removed from task titles once the date/priority has been read.
 _STRIP_FROM_TITLE = [
+  # "add a task to remind me at 6pm for drinking water" → "Drinking water"
+  re.compile(r"\b(?:to\s+)?(?:remind\s+me|yaad\s+dila(?:na|\s+dena)?)(?:\s+(?:to|for|about|ki))?\b", _F),
   re.compile(r"\b(?:in|after)\s+\d+\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\b", _F),
   re.compile(r"\b\d+\s*(?:minutes?|mins?|hours?|hrs?|days?)\s+(?:baad|later)\b", _F),
   re.compile(r"\b(?:by|on|at|due)?\s*(?:day\s+after\s+tomorrow|tomorrow|today|tonight|parso|parson|kal|aaj)\b", _F),
@@ -118,7 +120,7 @@ _STRIP_FROM_TITLE = [
 
 
 def parse_planner_request(text: str, *, now: datetime | None = None) -> PlannerIntent | None:
-  cleaned = " ".join((text or "").strip().split()).rstrip(" .!?")
+  cleaned = " ".join(normalize_ampm(text).strip().split()).rstrip(" .!?")
   if not cleaned:
     return None
   moment = (now or datetime.now(LOCAL_TZ)).astimezone(LOCAL_TZ)

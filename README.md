@@ -23,6 +23,7 @@ pip install -e ".[desktop]"
 ## What works today
 
 - **Chat** — local LLM (Hinglish-friendly companion prompt)
+- **Voice conversation** — 〰 button next to the mic (or Ctrl+Shift+Space): talk hands-free, Ultron answers out loud and keeps listening; Esc ends it and the conversation appears in chat. Task, reminder and "plan my day" commands work by voice.
 - **Dictate** — Chat mic / Alt+V / hold Ctrl+Shift+V (speech → text, no TTS required)
 - **Tasks & notes from chat or voice** — `add task pay bill tomorrow`, `task: call mom at 6pm urgent`, `what's pending`, `aaj ke tasks`, `done 2`, `pay bill ho gaya`, `delete task milk`, `note: call Rahul about project`
 - **Tasks + reminders together** — a task with a time (`add task call mom at 6pm`) reminds you then; **Done** on that pop-up completes the task; finishing or deleting the task cancels its reminder; unfinished tasks from earlier days move to today. Settings under `tasks:`.

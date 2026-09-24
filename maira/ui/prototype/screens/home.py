@@ -71,6 +71,7 @@ class HomeScreen(QWidget):
   command = Signal(str, str)
   quick_action = Signal(str)
   voice = Signal()
+  talk = Signal()
   open_screen = Signal(str)
 
   def __init__(self, store: MockStore, parent=None) -> None:
@@ -102,6 +103,7 @@ class HomeScreen(QWidget):
     self.command_input = CommandInput(compact=False)
     self.command_input.submitted.connect(self.command.emit)
     self.command_input.voice_clicked.connect(self.voice.emit)
+    self.command_input.talk_clicked.connect(self.talk.emit)
     self.command_input.notice.connect(self.store.toast.emit)
     layout.addWidget(self.command_input, alignment=Qt.AlignmentFlag.AlignCenter)
 

@@ -172,3 +172,11 @@ def test_open_at_time_still_opens() -> None:
   parsed = parse_schedule_request("open youtube at 9pm", now=now)
   assert parsed is not None
   assert parsed.action_type == AutomationActionType.OPEN_URL
+
+
+def test_dotted_pm_in_reminders() -> None:
+  now = datetime(2026, 9, 24, 10, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
+  parsed = parse_schedule_request("remind me at 6 p.m. to drink water", now=now)
+  assert parsed is not None
+  assert parsed.title == "Drink water"
+  assert parsed.run_at.astimezone(ZoneInfo("Asia/Kolkata")).hour == 18

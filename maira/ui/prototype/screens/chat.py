@@ -85,6 +85,8 @@ class ChatBubble(QFrame):
 class VoiceStage(QWidget):
   """Inline voice stage — hovering logo inside Chat."""
 
+  DEFAULT_HINT = "Bolo — aap rukoge toh Ultron jawab dega · Esc ya 〰 button se band karo"
+
   def __init__(self, parent=None) -> None:
     super().__init__(parent)
     layout = QVBoxLayout(self)
@@ -101,10 +103,37 @@ class VoiceStage(QWidget):
     )
     layout.addWidget(self.status)
 
-    self.hint = QLabel("Just talk — I'll reply when you pause · Esc or mic to leave")
+    self.you = QLabel("")
+    self.you.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    self.you.setWordWrap(True)
+    self.you.setStyleSheet(f"color: {t.TEXT_SECONDARY}; font-size: 14px;")
+    # Full width (no alignment flag): wrapped labels in aligned slots get clipped.
+    layout.addWidget(self.you)
+
+    self.reply = QLabel("")
+    self.reply.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    self.reply.setWordWrap(True)
+    self.reply.setStyleSheet(f"color: {t.TEXT_PRIMARY}; font-size: 15px;")
+    # Full width (no alignment flag): wrapped labels in aligned slots get clipped.
+    layout.addWidget(self.reply)
+
+    self.hint = QLabel(self.DEFAULT_HINT)
     self.hint.setObjectName("Muted")
     self.hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(self.hint)
+
+  def reset(self) -> None:
+    self.you.setText("")
+    self.reply.setText("")
+    self.hint.setText(self.DEFAULT_HINT)
+    self.set_state("Starting…")
+
+  def set_transcript(self, text: str) -> None:
+    self.you.setText(f"Aap: {text}" if text else "")
+    self.reply.setText("")
+
+  def set_reply(self, text: str) -> None:
+    self.reply.setText(text)
 
   def set_state(self, state: str) -> None:
     self.status.setText(state)
@@ -195,6 +224,7 @@ class ChatScreen(QWidget):
     self.input.set_placeholder("Message Ultron...")
     self.input.submitted.connect(self._on_submit)
     self.input.voice_clicked.connect(self._on_mic)
+    self.input.talk_clicked.connect(self.toggle_voice_mode)
     self.input.notice.connect(self.store.toast.emit)
     root.addWidget(self.input)
 
@@ -343,14 +373,25 @@ class ChatScreen(QWidget):
     self.load_history(history)
 
   def toggle_voice_mode(self) -> None:
-    """Legacy spoken-mode entry — currently routes to ChatGPT-style dictation."""
-    self.toggle_dictation()
+    """Start or end the hands-free voice conversation."""
+    self.set_voice_mode(not self._voice_mode)
 
   def set_voice_mode(self, enabled: bool) -> None:
-    # Spoken conversation UI is parked; keep chat stage and use dictation instead.
     if enabled:
-      if not self._dictating:
-        self.toggle_dictation()
+      if self._voice_mode:
+        return
+      if not self._voice_backend:
+        self.store.toast.emit("Voice not ready yet")
+        return
+      if self._dictating:
+        self.voice_cancel.emit()
+        self.set_dictating(False)
+      self._voice_mode = True
+      self.voice_stage.reset()
+      self.stage.setCurrentWidget(self.voice_page)
+      self.input.talk_btn.set_active(True)
+      self.input.set_placeholder("Voice conversation on — Esc to stop")
+      self.voice_toggled.emit(True)
       return
     if self._dictating:
       self.voice_cancel.emit()
@@ -360,6 +401,7 @@ class ChatScreen(QWidget):
     self.stage.setCurrentWidget(self.chat_page)
     self.input.set_placeholder("Message Ultron...")
     self.input.mic_btn.set_active(False)
+    self.input.talk_btn.set_active(False)
     self._dictating = False
 
   def toggle_dictation(self) -> None:

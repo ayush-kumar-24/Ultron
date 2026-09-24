@@ -261,3 +261,64 @@ def test_bare_complete_still_marks_matching_task(chat) -> None:
   assert _say(chat, "complete submit report") == 'Badhiya! "Submit report" done mark kar diya.'
   _say(chat, "task: write essay")
   assert _say(chat, "finish essay") == 'Badhiya! "Write essay" done mark kar diya.'
+
+
+@pytest.mark.parametrize(
+  ("text", "title", "due"),
+  [
+    ("add a task to remind me at 6 p.m. for drinking water", "Drinking water", "Wed 18:00"),
+    ("add task call mom at 6 P.M.", "Call mom", "Wed 18:00"),
+    ("add task meeting at 9.30 a.m. tomorrow", "Meeting", "Thu 09:30"),
+    ("add task remind me about gym kal", "Gym", "Thu 23:59"),
+  ],
+)
+def test_dotted_am_pm_and_remind_me_in_task_titles(text, title, due) -> None:
+  intent = parse_planner_request(text, now=NOW)
+  assert intent is not None and intent.action == PlannerAction.ADD_TASK
+  assert intent.text == title
+  assert intent.due_at.astimezone(LOCAL_TZ).strftime("%a %H:%M") == due
+
+
+def test_amounts_with_dots_are_not_times() -> None:
+  intent = parse_planner_request("add task pay 2.50 rupees fee", now=NOW)
+  assert intent is not None and intent.due_at is None
+
+
+def test_reminders_work_by_voice(storage, planner) -> None:
+  from maira.infrastructure.persistence.sqlite.repositories import AutomationRepository
+  from maira.modules.automation.service import AutomationService
+
+  automation = AutomationService(AutomationRepository(storage))
+  llm = FakeLLM()
+  brain = BrainService(llm, EventBus(), ConversationRepository(storage), planner=planner, automation=automation)
+  brain.send_message("remind me in 10 minutes to drink water", voice=True)
+  assert [j.title for j in automation.list_jobs()] == ["Drink water"]
+  assert llm.calls == []
+
+
+def test_spoken_turn_runs_task_command_and_speaks_answer(storage, planner) -> None:
+  """Real VoiceService + real brain: speech → "what's pending" → spoken task list."""
+  import time
+
+  from maira.modules.voice.service import VoiceService
+  from tests.unit.test_voice_service import FakeAudio, FakeSTT, FakeTTS
+
+  planner.add_task("Call mom")
+  bus = EventBus()
+  llm = FakeLLM()
+  brain = BrainService(llm, bus, ConversationRepository(storage), planner=planner)
+  tts = FakeTTS()
+  voice = VoiceService(brain=brain, event_bus=bus, audio=FakeAudio(), stt=FakeSTT("what's pending"), tts=tts)
+
+  spoken_turns: list = []
+  bus.subscribe("voice.reply", lambda p: (spoken_turns.append(p["text"]), voice.stop_conversation()))
+  voice.start_conversation()
+  deadline = time.time() + 10
+  while voice.in_conversation and time.time() < deadline:
+    time.sleep(0.05)
+  voice.shutdown()
+
+  assert spoken_turns and spoken_turns[0].startswith("Pending tasks (1):")
+  assert any("Call mom" in s for s in tts.spoken)
+  assert llm.calls == []  # answered locally, no LLM round-trip
+  assert [m.content for m in brain.get_history()][:1] == ["what's pending"]

@@ -91,6 +91,7 @@ class PrototypeWindow(QMainWindow):
     self.screens["home"].command.connect(self._home_command)
     self.screens["home"].quick_action.connect(self._quick_action)
     self.screens["home"].voice.connect(self.open_voice)
+    self.screens["home"].talk.connect(self.toggle_conversation)
     self.screens["home"].open_screen.connect(self.navigate)
     self.palette.activated.connect(self._run_command)
     self.search.result_chosen.connect(self._search_result)
@@ -216,6 +217,8 @@ class PrototypeWindow(QMainWindow):
     QShortcut(QKeySequence("Ctrl+Shift+T"), self, lambda: self.navigate("tasks"))
     # Ctrl+Shift+V hold-to-dictate; Alt+V toggles mic dictation.
     QShortcut(QKeySequence("Alt+V"), self, self.open_voice)
+    # Hands-free voice conversation (Esc ends it).
+    QShortcut(QKeySequence("Ctrl+Shift+Space"), self, self.toggle_conversation)
     QShortcut(QKeySequence("Ctrl+F"), self, self.open_search)
     QShortcut(QKeySequence(Qt.Key.Key_Escape), self, self._escape)
 
@@ -315,6 +318,16 @@ class PrototypeWindow(QMainWindow):
       return
     self.navigate("chat")
     self.screens["chat"].toggle_dictation()
+
+  def toggle_conversation(self) -> None:
+    if self.root_stack.currentWidget() is self.onboarding:
+      return
+    chat = self.screens["chat"]
+    if chat.voice_mode:
+      chat.set_voice_mode(False)
+      return
+    self.navigate("chat")
+    chat.set_voice_mode(True)
 
   def _escape(self) -> None:
     chat = self.screens["chat"]
