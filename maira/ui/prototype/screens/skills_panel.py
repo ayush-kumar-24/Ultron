@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+import queue
+
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
   QFrame,
@@ -42,26 +44,22 @@ def _card() -> tuple[QFrame, QVBoxLayout]:
 
 
 class SkillsPanel(QWidget):
-  _install_done = Signal(str)  # from the install thread
-  _store_changed = Signal()  # from any thread (chat commands change skills too)
 
   def __init__(self, service: SkillService, parent=None) -> None:
     super().__init__(parent)
     self.service = service
     self.store = service.store
     self._busy = False
-    self._refresh_queued = False
-    self._install_done.connect(self._on_install_done)
-    # Queued: a change made from inside a tree signal must not rebuild the tree under Qt's feet.
-    self._store_changed.connect(self._queue_refresh, Qt.ConnectionType.QueuedConnection)
-
-    def notify_change() -> None:
-      try:
-        self._store_changed.emit()
-      except RuntimeError:
-        pass  # panel already closed
-
-    self.store.on_change(notify_change)
+    # Install results and skill changes arrive from other threads (and from tree signals). They go
+    # into a queue that a UI-thread timer drains: a Qt signal emitted from a plain Python thread
+    # can sit undelivered, and a change made inside a tree signal must not rebuild the tree at once.
+    inbox: queue.SimpleQueue = queue.SimpleQueue()
+    self._inbox = inbox
+    self._inbox_timer = QTimer(self)
+    self._inbox_timer.setInterval(100)
+    self._inbox_timer.timeout.connect(self._drain_inbox)
+    self._inbox_timer.start()
+    self.store.on_change(lambda: inbox.put(("changed", "")))
 
     root = QVBoxLayout(self)
     root.setContentsMargins(0, 0, 0, 0)
@@ -159,16 +157,21 @@ class SkillsPanel(QWidget):
 
     self.refresh()
 
-  def _queue_refresh(self) -> None:
-    if self._refresh_queued:
-      return
-    self._refresh_queued = True
-
-    def run() -> None:
-      self._refresh_queued = False
+  def _drain_inbox(self) -> None:
+    changed = False
+    while True:
+      try:
+        kind, message = self._inbox.get_nowait()
+      except queue.Empty:
+        break
+      if kind == "installed":
+        self._on_install_done(message)
+      changed = True
+    if changed:
       self.refresh()
 
-    QTimer.singleShot(0, self, run)
+  def _queue_refresh(self) -> None:
+    self._inbox.put(("changed", ""))
 
   # --- list --------------------------------------------------------------------------------
 
@@ -343,7 +346,10 @@ class SkillsPanel(QWidget):
     if not source or self._busy:
       return
     purpose = self.purpose_new.text().strip()
-    reply = self.service.start_install(source, notify=self._install_done.emit, purpose=purpose or None)
+    inbox = self._inbox
+    reply = self.service.start_install(
+      source, notify=lambda message: inbox.put(("installed", message)), purpose=purpose or None
+    )
     self.install_state.setText(reply.text)
     if reply.text.startswith(("Installing", "Updating")):
       self._set_busy(True)

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import queue
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, QProcess, Qt, QTime, QUrl, Signal
+from PySide6.QtCore import QObject, QProcess, Qt, QTime, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
   QComboBox,
@@ -69,7 +70,6 @@ def _muted(text: str) -> QLabel:
 
 class LiveSettingsScreen(QWidget):
   changed = Signal(str, object)  # path, value
-  _background_done = Signal(object, object, str)  # callback, result, error
 
   def __init__(self, config: UserConfig, actions: SettingsActions | None = None, parent=None) -> None:
     super().__init__(parent)
@@ -79,8 +79,13 @@ class LiveSettingsScreen(QWidget):
     self._rows: dict[str, tuple[QLabel, QWidget, QLabel | None]] = {}
     self._install: QProcess | None = None
     self._status_busy = False
-    # Emitted from worker threads; Qt queues it onto the UI thread.
-    self._background_done.connect(self._on_background_done)
+    # Background results come back through a queue drained by a UI-thread timer. A Qt signal
+    # emitted from a plain Python thread can sit undelivered until some other event wakes the loop.
+    self._results: queue.SimpleQueue = queue.SimpleQueue()
+    self._running = 0
+    self._results_timer = QTimer(self)
+    self._results_timer.setInterval(50)
+    self._results_timer.timeout.connect(self._drain_results)
 
     root = QVBoxLayout(self)
     root.setContentsMargins(28, 24, 28, 24)
@@ -125,17 +130,29 @@ class LiveSettingsScreen(QWidget):
   # --- background work ---------------------------------------------------------------
 
   def _in_background(self, work: Callable[[], Any], done: Callable[[Any, str], None]) -> None:
+    results = self._results  # the thread touches only the queue, never Qt objects
+
     def run() -> None:
       try:
         result, error = work(), ""
       except Exception as exc:  # noqa: BLE001
         result, error = None, str(exc) or type(exc).__name__
-      self._background_done.emit(done, result, error)
+      results.put((done, result, error))
 
+    self._running += 1
+    self._results_timer.start()
     threading.Thread(target=run, name="ultron-settings", daemon=True).start()
 
-  def _on_background_done(self, done, result, error: str) -> None:
-    done(result, error)
+  def _drain_results(self) -> None:
+    while True:
+      try:
+        done, result, error = self._results.get_nowait()
+      except queue.Empty:
+        break
+      self._running -= 1
+      done(result, error)
+    if self._running <= 0:
+      self._results_timer.stop()
 
   # --- navigation -------------------------------------------------------------------
 
