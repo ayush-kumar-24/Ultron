@@ -68,7 +68,8 @@ def test_skill_prompt_and_context_window(setup) -> None:
 
   brain.send_message("how are you")  # no skill: normal prompt
   assert not llm.calls[1][0]["content"].startswith("You are using the skill")
-  assert "num_ctx" not in (llm.options[1] or {})
+  # Same context size as the skill turn: a change would make Ollama reload the model.
+  assert llm.options[1]["num_ctx"] == 9000
 
 
 def test_unknown_skill_and_commands_skip_the_llm(setup) -> None:
