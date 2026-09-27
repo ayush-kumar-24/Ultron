@@ -21,6 +21,6 @@ class SarvamTTSProvider(TTSProvider):
 
   def synthesize(self, text: str) -> tuple[Any, int]:
     raise RuntimeError(
-      "Sarvam TTS is optional and not wired for offline Maira. "
+      "Sarvam TTS is optional and not wired for offline Ultron. "
       "Use Kokoro for local speech."
     )

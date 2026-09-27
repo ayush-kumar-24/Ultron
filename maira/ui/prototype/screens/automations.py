@@ -34,7 +34,7 @@ class _CreateDialog(QDialog):
     self.when_edit = QLineEdit()
     self.when_edit.setPlaceholderText("e.g. tomorrow at 9am · in 10 minutes · every day at 8am")
     self.what_edit = QTextEdit()
-    self.what_edit.setPlaceholderText("What should Maira do? e.g. open YouTube, remind me to stretch")
+    self.what_edit.setPlaceholderText("What should Ultron do? e.g. open YouTube, remind me to stretch")
     self.what_edit.setFixedHeight(90)
     form.addRow("Title", self.title_edit)
     form.addRow("When", self.when_edit)
@@ -75,7 +75,7 @@ class AutomationsScreen(QWidget):
     root.setSpacing(16)
 
     top = QHBoxLayout()
-    top.addWidget(PageHeader("Automations", "Tell Maira what to do — and when"))
+    top.addWidget(PageHeader("Automations", "Tell Ultron what to do — and when"))
     top.addStretch(1)
     self.create_btn = QPushButton("+ Create Automation")
     self.create_btn.setObjectName("GhostButton")
@@ -84,7 +84,7 @@ class AutomationsScreen(QWidget):
     root.addLayout(top)
 
     note = QLabel(
-      "Runs at the exact time while Maira is open. "
+      "Runs on time even with the window closed — Ultron keeps running in the tray. "
       "Chat examples: “open YouTube at 9pm” · “remind me to call mom in 10 minutes”."
     )
     note.setObjectName("Muted")

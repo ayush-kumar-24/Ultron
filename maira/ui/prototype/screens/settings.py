@@ -42,7 +42,7 @@ class SettingsScreen(QWidget):
     root = QVBoxLayout(self)
     root.setContentsMargins(28, 24, 28, 24)
     root.setSpacing(16)
-    root.addWidget(PageHeader("Settings", "Shape how Maira works for you"))
+    root.addWidget(PageHeader("Settings", "Shape how Ultron works for you"))
 
     body = QHBoxLayout()
     body.setSpacing(16)
@@ -209,7 +209,7 @@ class SettingsScreen(QWidget):
         panel = QLabel(str(snap))
         panel.setObjectName("Muted")
         panel.setWordWrap(True)
-        form.addRow("MAIRA SYSTEM", panel)
+        form.addRow("ULTRON SYSTEM", panel)
       form.addRow("", offline)
       form.addRow("", online)
       form.addRow("", err)

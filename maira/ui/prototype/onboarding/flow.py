@@ -70,7 +70,7 @@ class OnboardingFlow(QWidget):
   def _welcome(self) -> QWidget:
     card, layout = self._center_card()
     layout.addWidget(MairaLogo(size="large", glowing=True, animated=True), alignment=Qt.AlignmentFlag.AlignCenter)
-    title = QLabel("Welcome to Maira.")
+    title = QLabel("Welcome to Ultron.")
     title.setObjectName("Greeting")
     title.setAlignment(Qt.AlignmentFlag.AlignCenter)
     sub = QLabel("Your personal AI operating system.")
@@ -129,7 +129,7 @@ class OnboardingFlow(QWidget):
   def _ready(self) -> QWidget:
     card, layout = self._center_card()
     layout.addWidget(MairaLogo(size="large", glowing=True, animated=True), alignment=Qt.AlignmentFlag.AlignCenter)
-    title = QLabel("Maira is ready.")
+    title = QLabel("Ultron is ready.")
     title.setObjectName("Greeting")
     title.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(title)

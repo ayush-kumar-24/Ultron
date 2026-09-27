@@ -6,7 +6,11 @@ import pytest
 
 from maira.core.domain.value_objects import Priority, TaskStatus
 from maira.infrastructure.persistence.sqlite.connection import SqliteStorage
-from maira.infrastructure.persistence.sqlite.migrations import apply_migrations, current_version
+from maira.infrastructure.persistence.sqlite.migrations import (
+  apply_migrations,
+  current_version,
+  discover_migrations,
+)
 from maira.infrastructure.persistence.sqlite.repositories import NoteRepository, TaskRepository
 from maira.modules.planner.service import PlannerService
 
@@ -68,5 +72,5 @@ def test_migration_two_applies_on_fresh_db(tmp_path: Path) -> None:
   assert 1 in applied
   assert 2 in applied
   assert 3 in applied
-  assert current_version(storage) == 3
+  assert current_version(storage) == discover_migrations()[-1][0]
   storage.close()

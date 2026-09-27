@@ -54,7 +54,7 @@ class MicrophoneManager:
     try:
       self._audio.start_recording()
     except Exception as exc:  # noqa: BLE001
-      self._last_error = "Maira can't access your microphone."
+      self._last_error = "Ultron can't access your microphone."
       raise RuntimeError(self._last_error) from exc
 
   def stop(self):

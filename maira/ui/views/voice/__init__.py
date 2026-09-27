@@ -125,4 +125,4 @@ class VoiceView(QWidget):
 
   def append_reply(self, text: str) -> None:
     if text.strip():
-      self._transcript.append(f"Maira: {text.strip()}")
+      self._transcript.append(f"Ultron: {text.strip()}")

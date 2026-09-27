@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Qt, Slot
+from PySide6.QtCore import QObject, Qt, Signal, Slot
 
 from maira.core.bus.event_bus import EventBus
 from maira.core.domain.value_objects import AutomationRecurrence
@@ -34,6 +34,9 @@ def _schedule_label(job) -> str:
 
 
 class ProtoAutomationBridge(QObject):
+  # Chat schedules on a worker thread; refresh the screen on the UI thread.
+  _changed = Signal()
+
   def __init__(
     self,
     automation: Automation,
@@ -54,7 +57,8 @@ class ProtoAutomationBridge(QObject):
     view.toggle_requested.connect(self.toggle)
     view.delete_requested.connect(self.delete)
 
-    event_bus.subscribe("automation.changed", lambda _p: self.refresh())
+    self._changed.connect(self.refresh)
+    event_bus.subscribe("automation.changed", lambda _p: self._changed.emit())
     if runner is not None:
       runner.jobs_changed.connect(self.refresh)
       runner.job_ran.connect(self._on_job_ran)

@@ -108,7 +108,7 @@ class Sidebar(QWidget):
     self.logo = MairaLogo(size="small", glowing=True)
     self.logo.setCursor(Qt.CursorShape.PointingHandCursor)
     self.logo.setToolTip("Expand / collapse")
-    self.wordmark = QLabel("MAIRA")
+    self.wordmark = QLabel("ULTRON")
     self.wordmark.setObjectName("BrandWordmark")
     self.wordmark.hide()
     top.addWidget(self.logo)

@@ -41,6 +41,7 @@ class VoiceService(Voice):
     chunk_max_chars: int = 160,
     interrupt_on_speech: bool = True,
     auto_speak: bool = True,
+    announcement_fallback=None,
   ) -> None:
     self._brain = brain
     self._bus = event_bus
@@ -51,6 +52,8 @@ class VoiceService(Voice):
     self._max_reply_tokens = max_reply_tokens
     self._interrupt_on_speech = interrupt_on_speech
     self._auto_speak = auto_speak
+    # Speaks announcements when the Kokoro voice is not installed (Windows voice).
+    self._announcement_fallback = announcement_fallback
     self._chunker = TextChunker(min_chars=chunk_min_chars, max_chars=chunk_max_chars)
     self._speech_queue = AudioQueue()
     self._status = VoiceStatus.IDLE
@@ -71,6 +74,10 @@ class VoiceService(Voice):
   def status(self) -> VoiceStatus:
     return self._status
 
+  @property
+  def in_conversation(self) -> bool:
+    return self._conversation_active
+
   def last_latency(self) -> VoiceLatencyTrace | None:
     return self._last_latency
 
@@ -82,13 +89,13 @@ class VoiceService(Voice):
       if self._status == VoiceStatus.SPEAKING or getattr(self._tts, "speaking", False):
         self._barge_in()
       if not self._audio.is_available():
-        self._publish_error("Maira can't access your microphone.")
+        self._publish_error("Ultron can't access your microphone.")
         return
       try:
         self._audio.start_recording()
       except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to start recording")
-        self._publish_error("Maira can't access your microphone.")
+        self._publish_error("Ultron can't access your microphone.")
         logger.debug("Mic start detail: {}", exc)
         return
       self._set_status(VoiceStatus.LISTENING)
@@ -138,7 +145,7 @@ class VoiceService(Voice):
       transcript = self._stt.transcribe(audio).strip()
     except Exception as exc:  # noqa: BLE001
       logger.exception("Dictation transcription failed")
-      self._publish_error("Maira can't access speech recognition right now.")
+      self._publish_error("Ultron can't access speech recognition right now.")
       logger.debug("Dictation STT detail: {}", exc)
       self._set_status(VoiceStatus.IDLE)
       return
@@ -192,12 +199,48 @@ class VoiceService(Voice):
       pass
     self._set_status(VoiceStatus.IDLE)
 
+  def announce(self, text: str) -> bool:
+    """Speak text in the background (e.g. the daily briefing).
+
+    Skipped when voice is unavailable or the user is mid-conversation.
+    """
+    if not text.strip():
+      return False
+    if not self._tts.is_available() or not self._audio.is_available():
+      fallback = self._announcement_fallback
+      if fallback is not None and fallback.is_available():
+        return fallback.speak(text)
+      logger.warning('Not speaking: no voice available (pip install -e ".[voice]")')
+      return False
+    busy = {
+      VoiceStatus.LISTENING,
+      VoiceStatus.TRANSCRIBING,
+      VoiceStatus.THINKING,
+      VoiceStatus.PROCESSING,
+      VoiceStatus.SPEAKING,
+    }
+    if self._status in busy or self._conversation_active:
+      logger.info("Not speaking: voice is busy ({})", self._status.value)
+      return False
+    logger.info("Speaking announcement ({} chars)", len(text))
+
+    def _speak() -> None:
+      try:
+        self._tts.speak(text)
+      except Exception:  # noqa: BLE001
+        logger.exception("Announcement speech failed")
+
+    threading.Thread(target=_speak, name="ultron-announce", daemon=True).start()
+    return True
+
   def stop_speaking(self) -> None:
     self._interrupt_playback()
     if self._status in (VoiceStatus.SPEAKING, VoiceStatus.INTERRUPTED):
       self._set_status(VoiceStatus.IDLE)
 
   def shutdown(self) -> None:
+    if self._announcement_fallback is not None:
+      self._announcement_fallback.stop()
     self.stop_conversation()
     self._tts_stop.set()
     self._speech_queue.cancel_all()
@@ -291,7 +334,7 @@ class VoiceService(Voice):
       transcript = self._stt.transcribe(audio).strip()
     except Exception as exc:  # noqa: BLE001
       logger.exception("Transcription failed")
-      self._publish_error("Maira can't access speech recognition right now.")
+      self._publish_error("Ultron can't access speech recognition right now.")
       logger.debug("STT detail: {}", exc)
       self._set_status(VoiceStatus.IDLE)
       return False
@@ -328,7 +371,7 @@ class VoiceService(Voice):
       self._call_brain(transcript, voice_mode=voice_mode)
     except Exception as exc:  # noqa: BLE001
       logger.exception("Brain request from voice failed")
-      self._publish_error(str(exc) or "Maira can't reach the local AI model.")
+      self._publish_error(str(exc) or "Ultron can't reach the local AI model.")
       self._set_status(VoiceStatus.IDLE)
       return False
     reply = self._last_assistant_reply()
@@ -397,7 +440,7 @@ class VoiceService(Voice):
       self._call_brain(transcript, voice_mode=voice_mode)
     except Exception as exc:  # noqa: BLE001
       logger.exception("Brain request from voice failed")
-      self._publish_error(str(exc) or "Maira can't reach the local AI model.")
+      self._publish_error(str(exc) or "Ultron can't reach the local AI model.")
       self._set_status(VoiceStatus.IDLE)
       return False
     finally:
@@ -486,6 +529,23 @@ class VoiceService(Voice):
       trace.mark("tts_start")
     self._speech_queue.put(text, meta={"gen": gen})
 
+  def _fallback_say(self, text: str, reason: str) -> bool:
+    """Kokoro gave no audio or failed: say it with the Windows voice instead of staying silent."""
+    fallback = self._announcement_fallback
+    if fallback is None or not fallback.is_available() or not text.strip():
+      return False
+    logger.warning("Speaking with the Windows voice instead ({})", reason)
+    say = getattr(fallback, "speak_and_wait", None) or fallback.speak
+    self._set_status(VoiceStatus.SPEAKING)
+    try:
+      ok = bool(say(text))
+    except Exception:  # noqa: BLE001
+      logger.exception("Windows voice fallback failed")
+      return False
+    if ok:
+      self._spoken_any = True
+    return ok
+
   def _ensure_tts_worker(self) -> None:
     self._tts_stop.clear()
     if self._tts_thread and self._tts_thread.is_alive():
@@ -529,9 +589,10 @@ class VoiceService(Voice):
           self._spoken_any = True
         except Exception as exc:  # noqa: BLE001
           logger.exception("TTS failed")
-          self._publish_error("I can still respond in text.")
           logger.debug("TTS detail: {}", exc)
-          break
+          if not self._fallback_say(item.text, "voice model failed"):
+            self._publish_error("I can still respond in text.")
+            break
         continue
 
       if prepared is None:
@@ -545,10 +606,15 @@ class VoiceService(Voice):
           chunks = _synth(item.text, gen)
         except Exception as exc:  # noqa: BLE001
           logger.exception("TTS failed")
-          self._publish_error("I can still respond in text.")
           logger.debug("TTS detail: {}", exc)
+          if gen == self._generation and self._fallback_say(item.text, "voice model failed"):
+            continue
+          self._publish_error("I can still respond in text.")
           break
         if not chunks:
+          if gen == self._generation:
+            logger.warning("Voice model produced no audio for: {!r}", item.text[:80])
+            self._fallback_say(item.text, "no audio from voice model")
           continue
         prepared = (gen, chunks)
 
@@ -592,7 +658,8 @@ class VoiceService(Voice):
 
       player.join(timeout=120.0)
       if play_error:
-        self._publish_error("I can still respond in text.")
+        logger.error("Audio playback failed: {}", play_error[0])
+        self._publish_error(f"Speaker playback failed: {play_error[0]}")
         break
 
   def _wait_speech_drain(self, gen: int, *, timeout: float) -> None:

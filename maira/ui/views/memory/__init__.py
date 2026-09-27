@@ -90,7 +90,7 @@ class MemoryView(QWidget):
     editor_layout.addWidget(self._title)
 
     self._body = QTextEdit()
-    self._body.setPlaceholderText("What should Maira remember?")
+    self._body.setPlaceholderText("What should Ultron remember?")
     editor_layout.addWidget(self._body, stretch=1)
 
     actions = QHBoxLayout()

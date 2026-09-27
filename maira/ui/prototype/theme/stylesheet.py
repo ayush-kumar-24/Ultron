@@ -172,6 +172,11 @@ QScrollArea {{
   border: none;
 }}
 
+/* The viewport and page inside every scroll area follow the dark theme too. */
+QScrollArea > QWidget, QScrollArea > QWidget > QWidget {{
+  background: transparent;
+}}
+
 QScrollBar:vertical {{
   background: transparent;
   width: 8px;
@@ -205,6 +210,31 @@ QComboBox {{
   color: {t.TEXT_PRIMARY};
   padding: 8px 12px;
   min-height: 20px;
+}}
+
+QSpinBox, QDoubleSpinBox, QTimeEdit {{
+  background-color: {t.BG_ELEVATED};
+  border: 1px solid {t.BORDER};
+  border-radius: {t.RADIUS_SM}px;
+  color: {t.TEXT_PRIMARY};
+  padding: 6px 10px;
+  min-height: 22px;
+  selection-background-color: rgba(255,255,255,0.12);
+}}
+
+QSpinBox:focus, QDoubleSpinBox:focus, QTimeEdit:focus {{
+  border: 1px solid {t.BORDER_FOCUS};
+}}
+
+QSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::up-button,
+QDoubleSpinBox::down-button, QTimeEdit::up-button, QTimeEdit::down-button {{
+  background: transparent;
+  border: none;
+  width: 18px;
+}}
+
+QWidget#SettingsPage {{
+  background: transparent;
 }}
 
 QComboBox:hover {{

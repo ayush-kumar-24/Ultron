@@ -232,7 +232,7 @@ MOCK_SEARCH_RESULTS = [
 
 MOCK_ERRORS = {
   "ollama": {
-    "title": "Maira can't reach the local AI model.",
+    "title": "Ultron can't reach the local AI model.",
     "body": "Make sure your local model is running.",
   },
   "model": {
@@ -249,7 +249,7 @@ MOCK_ERRORS = {
   },
   "network": {
     "title": "You're offline — and that's fine.",
-    "body": "Maira is built for local use. Core features still work.",
+    "body": "Ultron is built for local use. Core features still work.",
   },
   "general": {
     "title": "Something went wrong.",

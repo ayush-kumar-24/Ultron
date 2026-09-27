@@ -1,21 +1,27 @@
 """Application bootstrap sequence."""
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
+import sys
 import threading
 
 from loguru import logger
 from PySide6.QtWidgets import QApplication
 
 from maira.app.container import Container
+from maira.app.restart import restart_app
 from maira.app.lifecycle import Lifecycle
 from maira.app.settings import Settings, load_settings
+from maira.app.single_instance import SingleInstanceGuard
 from maira.core.bus.event_bus import EventBus
 from maira.infrastructure.embeddings.sentence_transformers.encoder import (
   SentenceTransformerEncoder,
 )
 from maira.infrastructure.llm.ollama.client import OllamaClient
 from maira.infrastructure.logging.loguru_setup import setup_logging
+from maira.infrastructure.notifications.toast_process import ToastProcessNotifier
+from maira.infrastructure.os.autostart import BACKGROUND_FLAG, AutostartManager
 from maira.infrastructure.persistence.sqlite.connection import SqliteStorage
 from maira.infrastructure.persistence.sqlite.migrations import apply_migrations
 from maira.infrastructure.persistence.sqlite.repositories import (
@@ -27,9 +33,11 @@ from maira.infrastructure.persistence.sqlite.repositories import (
 )
 from maira.infrastructure.speech.audio.stream import AudioStream
 from maira.infrastructure.speech.kokoro.engine import KokoroEngine
+from maira.infrastructure.speech.windows.sapi import WindowsSpeech
 from maira.infrastructure.speech.whisper.engine import WhisperEngine
 from maira.infrastructure.vector.chromadb.collections import ChromaVectorStore
 from maira.modules.automation.executor import AutomationExecutor
+from maira.modules.automation.parser import LOCAL_TZ
 from maira.modules.automation.runner import AutomationRunner
 from maira.modules.automation.service import AutomationService
 from maira.modules.brain.conversation import ConversationSession
@@ -38,15 +46,29 @@ from maira.modules.desktop_controller.service import DesktopControllerService
 from maira.modules.memory.policy import MemoryPolicy
 from maira.modules.memory.service import MemoryService
 from maira.modules.memory.worker import MemoryWorker
+from maira.modules.notifications.service import NotificationService
+from maira.modules.planner.briefing import Briefing, BriefingService
+from maira.modules.skills.service import SkillService
+from maira.modules.skills.store import SkillStore
+from maira.modules.planner.briefing.runner import BriefingRunner
+from maira.modules.planner.briefing.schedule import BriefingSchedule, parse_clock
+from maira.modules.planner.reminders import LinkedPlanner
 from maira.modules.planner.service import PlannerService
 from maira.modules.voice.service import VoiceService
 from maira.modules.voice.stt import SpeechToText
 from maira.modules.voice.stt.registry import create_stt, ensure_default_stt_providers
 from maira.modules.voice.tts import TextToSpeech
 from maira.modules.voice.tts.registry import create_tts, ensure_default_tts_providers
-from maira.shared.utils.paths import database_path, project_root
+from maira.shared.utils.paths import data_dir, database_path, project_root
 from maira.ui.application import create_qt_application
 from maira.ui.prototype.shell.main_window import PrototypeWindow as MainWindow
+from maira.ui.system_tray import (
+  NotificationActionRelay,
+  TrayBalloonNotifier,
+  TrayController,
+  app_icon,
+  export_icon_files,
+)
 
 
 @dataclass
@@ -55,6 +77,7 @@ class AppContext:
   container: Container
   lifecycle: Lifecycle
   window: MainWindow
+  tray: TrayController | None = None
 
 
 def _resolve_chroma_path(settings: Settings) -> Path:
@@ -102,9 +125,43 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
   container.register_instance("note_repository", note_repository)
   container.register_instance("memory_repository", memory_repository)
   container.register_instance("automation_repository", automation_repository)
-  container.register_instance("planner", PlannerService(task_repository, note_repository))
   automation = AutomationService(automation_repository)
   container.register_instance("automation", automation)
+  # Every task change (chat, voice, Tasks screen) keeps its reminder in sync.
+  container.register_instance(
+    "planner",
+    LinkedPlanner(
+      PlannerService(task_repository, note_repository),
+      automation,
+      remind_at_due=settings.tasks.remind_at_due,
+      roll_over_enabled=settings.tasks.roll_over,
+    ),
+  )
+  container.register_instance(
+    "briefing",
+    BriefingService(container.resolve("planner"), automation, name=settings.briefing.name),
+  )
+  skill_store = SkillStore(data_dir() / "skills")
+  container.register_instance(
+    "skills",
+    SkillService(
+      skill_store,
+      enabled=settings.skills.enabled,
+      auto_use=settings.skills.auto_use,
+      max_chars=settings.skills.max_chars,
+      context_window=settings.skills.context_window,
+      script_timeout=settings.skills.script_timeout,
+    ),
+  )
+  container.register_instance(
+    "notifications",
+    NotificationService(
+      automation,
+      event_bus=event_bus,
+      snooze_minutes=settings.notifications.snooze_minutes,
+      local_tz=LOCAL_TZ,
+    ),
+  )
   desktop = DesktopControllerService(
     enabled=settings.desktop.enabled,
     allow_input=settings.desktop.allow_input,
@@ -151,6 +208,9 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
       recall_mode=settings.memory.recall_mode,
       automation=container.resolve("automation"),
       desktop=container.resolve("desktop"),
+      planner=container.resolve("planner"),
+      briefing=container.resolve("briefing"),
+      skills=container.resolve("skills"),
     )
 
   container.register("brain", brain_factory)
@@ -163,8 +223,13 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
     def notify(message: str) -> None:
       container.resolve("event_bus").publish("automation.notify", {"message": message})
 
+    def remind(job, message: str) -> None:
+      if settings.notifications.enabled:
+        container.resolve("notifications").remind(job, message)
+      notify(f"Reminder: {message}")
+
     executor = AutomationExecutor(
-      automation, brain=brain, desktop=desktop, on_notify=notify
+      automation, brain=brain, desktop=desktop, on_notify=notify, on_reminder=remind
     )
     runner = AutomationRunner(automation, executor, interval_ms=5_000)
     lifecycle.on_shutdown(runner.stop)
@@ -205,10 +270,22 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
       lang_code=settings.voice.tts_lang,
       allow_fallback=settings.voice.allow_tts_fallback,
       max_model_download_gb=settings.voice.max_model_download_gb,
+      device=settings.voice.tts_device,
+      language=settings.voice.tts_language,
+      reference_audio=settings.voice.tts_reference_audio,
+      speaker=settings.voice.tts_speaker,
+      exaggeration=settings.voice.tts_exaggeration,
     )
-    if tts_provider.is_available()[0] and hasattr(tts_provider, "_engine"):
-      tts = TextToSpeech(tts_provider._engine, audio)  # noqa: SLF001
+    available, reason = tts_provider.is_available()
+    if available and hasattr(tts_provider, "_engine"):
+      engine = tts_provider._engine  # noqa: SLF001
+      logger.info("Voice: {}", tts_provider.get_provider_name())
+      if hasattr(engine, "close"):
+        lifecycle.on_shutdown(engine.close)
+      tts = TextToSpeech(engine, audio)
     else:
+      if settings.voice.tts_provider != "kokoro":
+        logger.warning("Voice '{}' unavailable ({}); using Kokoro", settings.voice.tts_provider, reason)
       tts_engine = KokoroEngine(
         voice=settings.voice.tts_voice,
         sample_rate=24000,
@@ -229,6 +306,7 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
       chunk_max_chars=settings.voice.chunk_max_chars,
       interrupt_on_speech=settings.voice.interrupt_on_speech,
       auto_speak=settings.voice.auto_speak,
+      announcement_fallback=WindowsSpeech(),
     )
     lifecycle.on_shutdown(voice.shutdown)
 
@@ -244,20 +322,193 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
   container.register("voice", voice_factory)
 
 
-def bootstrap() -> AppContext:
+def _setup_background(
+  qt_app: QApplication,
+  container: Container,
+  settings: Settings,
+  window: MainWindow,
+  lifecycle: Lifecycle,
+) -> TrayController | None:
+  """Tray icon, close-to-tray, Start with Windows, and OS reminder pop-ups."""
+  icon = app_icon()
+  qt_app.setWindowIcon(icon)
+  window.setWindowIcon(icon)
+
+  tray: TrayController | None = None
+  if TrayController.is_supported():
+    autostart: AutostartManager = container.resolve("autostart")
+    autostart.refresh()
+    tray = TrayController(icon, app_name=settings.app_name, autostart=autostart)
+    tray.open_requested.connect(window.bring_to_front)
+    tray.quit_requested.connect(qt_app.quit)
+    tray.show()
+    logger.info("Tray icon ready")
+    lifecycle.on_shutdown(tray.hide)
+    if settings.background.close_to_tray:
+
+      def hide_to_tray() -> bool:
+        tray.show_background_hint_once()
+        return True
+
+      window.set_close_handler(hide_to_tray)
+      qt_app.setQuitOnLastWindowClosed(False)
+  else:
+    logger.warning("System tray unavailable; Ultron will quit when the window closes")
+
+  notifications: NotificationService = container.resolve("notifications")
+  notifications.set_open_handler(window.bring_to_front)
+  if not settings.notifications.enabled:
+    return tray
+
+  event_bus: EventBus = container.resolve("event_bus")
+
+  def on_action(notification_id: str, action: str) -> None:
+    message = notifications.handle_action(notification_id, action)
+    if message:
+      event_bus.publish("automation.notify", {"message": message})
+
+  relay = NotificationActionRelay(on_action, parent=qt_app)
+  # Rejected toasts are reported on a background thread; retry on the main thread.
+  failure_relay = NotificationActionRelay(
+    lambda notification_id, backend: notifications.retry_without(notification_id, backend),
+    parent=qt_app,
+  )
+  if settings.notifications.windows_toast and os.name == "nt":
+    icons = export_icon_files(data_dir() / "assets")
+    # Toasts run in a helper process: pywinrt and Qt crash in one process.
+    toast_notifier = ToastProcessNotifier(
+      relay.post,
+      app_name=settings.app_name,
+      icon_path=icons.ico if icons else None,
+      image_path=icons.png if icons else None,
+      on_failed=lambda notification_id: failure_relay.post(notification_id, "windows-toast"),
+    )
+    lifecycle.on_shutdown(toast_notifier.close)
+    notifications.add_notifier(toast_notifier)
+  if tray is not None:
+    notifications.add_notifier(TrayBalloonNotifier(tray))
+
+    def send_test() -> None:
+      backend = notifications.send_test()
+      if backend is None:
+        tray.show_message("Ultron", "Couldn't show a Windows notification — see data/logs/maira.log")
+
+    tray.test_notification_requested.connect(send_test)
+  if not notifications.has_backend():
+    logger.warning("No OS notification backend; reminders show inside the app only")
+  return tray
+
+
+def _setup_briefing(
+  container: Container,
+  settings: Settings,
+  lifecycle: Lifecycle,
+  tray: TrayController | None,
+) -> None:
+  """Show the daily briefing once a day in chat, as a notification, and aloud."""
+  from datetime import time  # noqa: PLC0415
+
+  briefing: BriefingService = container.resolve("briefing")
+  schedule = BriefingSchedule(
+    data_dir() / "briefing_state.json",
+    at=parse_clock(settings.briefing.time, time(8, 0)),
+    until=parse_clock(settings.briefing.until, time(12, 0)),
+  )
+  notifications: NotificationService = container.resolve("notifications")
+
+  def deliver(item: Briefing) -> None:
+    brain = container.resolve("brain")
+    # Off the UI thread: the brain waits if a chat reply is still streaming.
+    threading.Thread(target=brain.announce, args=(item.text,), name="ultron-briefing", daemon=True).start()
+    notifications.announce("Aaj ka plan", item.summary)
+    if settings.briefing.speak:
+      container.resolve("voice").announce(item.speech)
+
+  if settings.briefing.speak:
+    # "plan my day" in chat or the Home button: speak the short version too.
+    container.resolve("event_bus").subscribe(
+      "briefing.requested",
+      lambda payload: container.resolve("voice").announce(str(payload.get("speech", ""))),
+    )
+  if tray is not None:
+    # Tray → "Today's plan": show and speak it now, any time of day.
+    tray.briefing_requested.connect(lambda: deliver(briefing.build()))
+  if not settings.briefing.enabled:
+    return
+  runner = BriefingRunner(briefing, schedule, deliver)
+  runner.start()
+  lifecycle.on_shutdown(runner.stop)
+  container.register_instance("briefing_runner", runner)
+
+
+def _setup_task_links(qt_app: QApplication, container: Container, lifecycle: Lifecycle) -> None:
+  """Reminder "Done" completes its task; unfinished tasks move to today."""
+  from PySide6.QtCore import QTimer  # noqa: PLC0415
+
+  planner: LinkedPlanner = container.resolve("planner")
+  event_bus: EventBus = container.resolve("event_bus")
+
+  def on_reminder_done(payload) -> None:
+    task = planner.complete_from_job((payload or {}).get("job_id"))
+    if task is not None:
+      event_bus.publish("planner.changed", {"reason": "reminder"})
+      event_bus.publish("automation.notify", {"message": f'Task done: "{task.title}"'})
+
+  event_bus.subscribe("notification.done", on_reminder_done)
+
+  def roll_over() -> None:
+    try:
+      if planner.roll_over():
+        event_bus.publish("planner.changed", {"reason": "roll_over"})
+    except Exception:  # noqa: BLE001
+      logger.exception("Moving unfinished tasks failed")
+
+  roll_over()  # before the first briefing
+  timer = QTimer(qt_app)
+  timer.setInterval(10 * 60 * 1000)  # catches midnight within 10 minutes
+  timer.timeout.connect(roll_over)
+  timer.start()
+  lifecycle.on_shutdown(timer.stop)
+
+
+def bootstrap(argv: list[str] | None = None) -> AppContext | None:
+  """Build the app. Returns None when another instance is already running."""
+  args = list(sys.argv[1:] if argv is None else argv)
+  background = BACKGROUND_FLAG in args
+
   setup_logging()
-  logger.info("Starting Maira")
+  logger.info("Starting Ultron{}", " in background" if background else "")
 
   settings = load_settings()
+  qt_app = create_qt_application(settings)
+
+  guard = SingleInstanceGuard()
+  if not guard.try_acquire():
+    return None
+
   container = Container()
   lifecycle = Lifecycle()
+  lifecycle.on_shutdown(guard.release)
 
   _register_services(container, settings, lifecycle)
+  container.register_instance("lifecycle", lifecycle)
+  container.register_instance("restart", lambda: restart_app(qt_app, guard))
+  autostart = AutostartManager(settings.app_name)
+  container.register_instance("autostart", autostart)
 
-  qt_app = create_qt_application(settings)
   window = MainWindow(container=container, skip_onboarding=True)
-  window.show()
+  tray = _setup_background(qt_app, container, settings, window, lifecycle)
+  guard.activation_requested.connect(window.bring_to_front)
+  guard.replace_requested.connect(qt_app.quit)
+  _setup_task_links(qt_app, container, lifecycle)
+  _setup_briefing(container, settings, lifecycle, tray)
 
-  lifecycle.on_shutdown(lambda: logger.info("Maira shutdown complete"))
+  start_hidden = tray is not None and (background or settings.background.start_minimized)
+  if not start_hidden:
+    window.show()
 
-  return AppContext(qt_app=qt_app, container=container, lifecycle=lifecycle, window=window)
+  lifecycle.on_shutdown(lambda: logger.info("Ultron shutdown complete"))
+
+  return AppContext(
+    qt_app=qt_app, container=container, lifecycle=lifecycle, window=window, tray=tray
+  )

@@ -90,12 +90,47 @@ def _blocked_heavy(name: str, max_model_download_gb: float = 1.0, **_kwargs) -> 
   )
 
 
+# Installed with scripts/setup_voice.py into voice_envs/<name>; the user opts in there.
+WORKER_DEFAULT_RATES = {"chatterbox": 24000, "indic_parler": 44100}
+
+
+def _build_worker(
+  name: str,
+  *,
+  device: str = "auto",
+  language: str = "auto",
+  reference_audio: str = "",
+  speaker: str = "Divya",
+  exaggeration: float = 0.5,
+  **_kwargs,
+) -> TTSProvider:
+  from maira.infrastructure.speech.worker.engine import WorkerTTSEngine
+  from maira.modules.voice.tts.worker_provider import WorkerTTSProvider
+  from maira.modules.voice.voice_tools import engine_options
+
+  options = engine_options(
+    name,
+    {
+      "device": device,
+      "language": language,
+      "reference_audio": reference_audio,
+      "speaker": speaker,
+      "exaggeration": exaggeration,
+    },
+  )
+  engine = WorkerTTSEngine(name, options=options, default_sample_rate=WORKER_DEFAULT_RATES[name])
+  return WorkerTTSProvider(name, engine)
+
+
 def ensure_default_tts_providers() -> None:
   if "kokoro" not in _REGISTRY:
     register_tts("kokoro", _build_kokoro)
   if "sarvam" not in _REGISTRY:
     register_tts("sarvam", _build_sarvam)
-  for heavy in ("indic_parler", "veena", "chatterbox"):
+  for name in ("chatterbox", "indic_parler"):
+    if name not in _REGISTRY:
+      register_tts(name, lambda name=name, **kw: _build_worker(name, **kw))
+  for heavy in ("veena",):
     if heavy not in _REGISTRY:
       register_tts(heavy, lambda name=heavy, **kw: _blocked_heavy(name, **kw))
 

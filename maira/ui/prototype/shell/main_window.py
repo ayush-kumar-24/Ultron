@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import Qt, QEvent, QObject
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QStackedWidget, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QStackedWidget, QWidget
 
 from maira.app.container import Container
 from maira.ui.prototype.components.primitives import ToastHost
@@ -89,6 +91,8 @@ class PrototypeWindow(QMainWindow):
     self.screens["home"].command.connect(self._home_command)
     self.screens["home"].quick_action.connect(self._quick_action)
     self.screens["home"].voice.connect(self.open_voice)
+    self.screens["home"].talk.connect(self.toggle_conversation)
+    self.screens["home"].open_screen.connect(self.navigate)
     self.palette.activated.connect(self._run_command)
     self.search.result_chosen.connect(self._search_result)
     self.store.toast.connect(self.toast.show_toast)
@@ -96,6 +100,7 @@ class PrototypeWindow(QMainWindow):
 
     self._bridges: list = []
     self._voice_ptt_active = False
+    self._close_handler: Callable[[], bool] | None = None
     if container is not None:
       self._wire_backend(container)
 
@@ -110,6 +115,7 @@ class PrototypeWindow(QMainWindow):
     from maira.ui.prototype.integration.automation_bridge import ProtoAutomationBridge
     from maira.ui.prototype.integration.chat_bridge import ProtoChatBridge
     from maira.ui.prototype.integration.memory_bridge import ProtoMemoryBridge
+    from maira.ui.prototype.integration.overview_bridge import SEARCH_CATEGORIES, OverviewBridge
     from maira.ui.prototype.integration.planner_bridge import ProtoPlannerBridge
     from maira.ui.prototype.integration.voice_bridge import ProtoVoiceBridge
 
@@ -122,18 +128,18 @@ class PrototypeWindow(QMainWindow):
     automation = container.resolve("automation")
     settings = container.resolve("settings")
 
-    # Prefer real profile name from settings if present
-    self.store.profile["name"] = getattr(settings.app, "name", None) or "Ayush"
-    if self.store.profile["name"] == "Ultron":
-      self.store.profile["name"] = "Ayush"
-    self.sidebar.set_profile_initial(self.store.greeting_name())
+    self._set_user_name(settings.briefing.name)
+    self._install_live_settings(container)
 
     chat = self.screens["chat"]
     self._bridges.append(
       ProtoChatBridge(brain, event_bus, chat, model_name=settings.ollama.model)
     )
-    self._bridges.append(ProtoPlannerBridge(planner, self.screens["tasks"], self.screens["notes"]))
+    self._bridges.append(ProtoPlannerBridge(planner, self.screens["tasks"], self.screens["notes"], event_bus))
     self._bridges.append(ProtoMemoryBridge(memory, self.screens["memory"]))
+    self._overview = OverviewBridge(planner, automation, memory, event_bus, self.screens["home"], self.store)
+    self._bridges.append(self._overview)
+    self.search.set_categories(SEARCH_CATEGORIES)
     self._bridges.append(ProtoVoiceBridge(voice, event_bus, chat))
 
     runner = container.resolve("automation_runner")
@@ -145,6 +151,10 @@ class PrototypeWindow(QMainWindow):
       toast=self.store.toast.emit,
     )
     self._bridges.append(auto_bridge)
+    event_bus.subscribe(
+      "skill.used",
+      lambda p: self.store.toast.emit(f"Using skill: {p.get('name', '')}"),
+    )
     event_bus.subscribe(
       "automation.notify",
       lambda p: self.store.toast.emit(str(p.get("message", "Automation"))),
@@ -172,6 +182,57 @@ class PrototypeWindow(QMainWindow):
       pass
     self.store.changed.emit("status")
 
+  def _set_user_name(self, name: str) -> None:
+    self.store.profile["name"] = name.strip() or "there"
+    self.sidebar.set_profile_initial(self.store.greeting_name())
+    self.store.changed.emit("profile")
+
+  def _install_live_settings(self, container: Container) -> None:
+    """Swap the demo Settings page for the real one (saves to data/config.yaml)."""
+    from maira.app.user_config import UserConfig  # noqa: PLC0415
+    from maira.ui.prototype.integration.settings_actions import build_settings_actions  # noqa: PLC0415
+    from maira.ui.prototype.screens.live_settings import LiveSettingsScreen  # noqa: PLC0415
+
+    def rename(name: str) -> None:
+      self._set_user_name(name)
+      try:
+        container.resolve("briefing").set_name(name)
+      except Exception:  # noqa: BLE001 — not registered in some tests
+        pass
+
+    actions = build_settings_actions(container, on_name_changed=rename)
+    live = LiveSettingsScreen(UserConfig(), actions)
+    old = self.screens["settings"]
+    index = self.stack.indexOf(old)
+    self.stack.removeWidget(old)
+    old.deleteLater()
+    self.stack.insertWidget(index, live)
+    self.screens["settings"] = live
+
+  def set_close_handler(self, handler: Callable[[], bool] | None) -> None:
+    """Handler returns True to hide the window instead of closing (tray mode)."""
+    self._close_handler = handler
+
+  def closeEvent(self, event) -> None:  # noqa: N802
+    # Never veto a Windows sign-out / shutdown: let the window close normally.
+    saving_session = QApplication.instance() is not None and QApplication.instance().isSavingSession()
+    if not saving_session and self._close_handler is not None and self._close_handler():
+      chat = self.screens["chat"]
+      if chat.dictating or chat.voice_mode:
+        chat.set_voice_mode(False)
+      event.ignore()
+      self.hide()
+      return
+    super().closeEvent(event)
+
+  def bring_to_front(self) -> None:
+    if self.isMinimized():
+      self.showNormal()
+    else:
+      self.show()
+    self.raise_()
+    self.activateWindow()
+
   def resizeEvent(self, event) -> None:  # noqa: N802
     super().resizeEvent(event)
     for overlay in (self.palette, self.search, self.toast):
@@ -184,6 +245,8 @@ class PrototypeWindow(QMainWindow):
     QShortcut(QKeySequence("Ctrl+Shift+T"), self, lambda: self.navigate("tasks"))
     # Ctrl+Shift+V hold-to-dictate; Alt+V toggles mic dictation.
     QShortcut(QKeySequence("Alt+V"), self, self.open_voice)
+    # Hands-free voice conversation (Esc ends it).
+    QShortcut(QKeySequence("Ctrl+Shift+Space"), self, self.toggle_conversation)
     QShortcut(QKeySequence("Ctrl+F"), self, self.open_search)
     QShortcut(QKeySequence(Qt.Key.Key_Escape), self, self._escape)
 
@@ -254,6 +317,9 @@ class PrototypeWindow(QMainWindow):
   def navigate(self, key: str) -> None:
     if key not in self.screens:
       return
+    overview = getattr(self, "_overview", None)
+    if overview is not None and key in ("home", "activity"):
+      overview.refresh()
     chat = self.screens["chat"]
     if key != "chat" and (chat.voice_mode or chat.dictating):
       chat.set_voice_mode(False)
@@ -281,6 +347,16 @@ class PrototypeWindow(QMainWindow):
     self.navigate("chat")
     self.screens["chat"].toggle_dictation()
 
+  def toggle_conversation(self) -> None:
+    if self.root_stack.currentWidget() is self.onboarding:
+      return
+    chat = self.screens["chat"]
+    if chat.voice_mode:
+      chat.set_voice_mode(False)
+      return
+    self.navigate("chat")
+    chat.set_voice_mode(True)
+
   def _escape(self) -> None:
     chat = self.screens["chat"]
     if chat.dictating or chat.voice_mode:
@@ -305,9 +381,20 @@ class PrototypeWindow(QMainWindow):
       chat._mock_send(display)  # noqa: SLF001
 
   def _quick_action(self, action_id: str) -> None:
+    if action_id == "plan":
+      self._home_command("Plan my day")
+      return
+    if action_id == "pending" and self._container is not None:
+      self._home_command("What's pending?")
+      return
+    if action_id == "add_task":
+      self.screens["home"].prefill("add task ")
+      return
+    if action_id == "reminder":
+      self.screens["home"].prefill("remind me in 10 minutes to ")
+      return
     mapping = {
       "workspace": ("automations", "Opening Morning Workspace (mock)"),
-      "plan": ("tasks", "Planning your day (mock)"),
       "search": (None, None),
       "pending": ("tasks", "Here's what's pending"),
     }
@@ -321,9 +408,11 @@ class PrototypeWindow(QMainWindow):
       self.store.toast.emit(toast)
 
   def _run_command(self, cmd_id: str) -> None:
+    if cmd_id == "plan":
+      self._home_command("Plan my day")
+      return
     routes = {
       "workspace": "automations",
-      "plan": "tasks",
       "memory": "memory",
       "task": "tasks",
       "note": "notes",

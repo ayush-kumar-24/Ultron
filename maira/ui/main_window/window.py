@@ -26,7 +26,7 @@ class MainWindow(QMainWindow):
   def __init__(self, container: Container, parent=None) -> None:
     super().__init__(parent)
     self._container = container
-    self.setWindowTitle("Maira")
+    self.setWindowTitle("Ultron")
     self.resize(1100, 720)
     self._build_ui()
     self._wire_services()
@@ -81,4 +81,4 @@ class MainWindow(QMainWindow):
     self._voice_controller = VoiceController(voice, event_bus, self._voice_view)
 
     if not llm.is_available():
-      self._chat_view.show_error("Maira can't reach the local AI model.")
+      self._chat_view.show_error("Ultron can't reach the local AI model.")

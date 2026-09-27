@@ -132,7 +132,7 @@ class ChatView(QWidget):
 
     input_row = QHBoxLayout()
     self._input = QLineEdit()
-    self._input.setPlaceholderText("Message Maira…")
+    self._input.setPlaceholderText("Message Ultron…")
     self._input.returnPressed.connect(self._on_send)
     input_row.addWidget(self._input, stretch=1)
 

@@ -17,7 +17,7 @@ class ActivityScreen(QWidget):
     root = QVBoxLayout(self)
     root.setContentsMargins(28, 24, 28, 24)
     root.setSpacing(16)
-    root.addWidget(PageHeader("Activity", "A calm timeline of what Maira has done"))
+    root.addWidget(PageHeader("Activity", "A calm timeline of what Ultron has done"))
 
     self.scroll = QScrollArea()
     self.scroll.setWidgetResizable(True)
@@ -27,7 +27,7 @@ class ActivityScreen(QWidget):
     self.scroll.setWidget(self.host)
     root.addWidget(self.scroll, stretch=1)
 
-    self.empty = EmptyState("Nothing here yet.", "Activity will appear as Maira works with you.")
+    self.empty = EmptyState("Nothing here yet.", "Activity will appear as Ultron works with you.")
     root.addWidget(self.empty)
     self.empty.hide()
     store.changed.connect(lambda k: k == "activity" and self.reload())

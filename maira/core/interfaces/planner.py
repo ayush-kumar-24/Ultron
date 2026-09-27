@@ -23,6 +23,14 @@ class Planner(ABC):
     """Create a new open task."""
 
   @abstractmethod
+  def get_task(self, task_id: str) -> Task | None:
+    """Fetch a single task."""
+
+  @abstractmethod
+  def set_task_due(self, task_id: str, due_at: datetime | None) -> Task | None:
+    """Change or clear a task's due time."""
+
+  @abstractmethod
   def set_task_status(self, task_id: str, status: TaskStatus) -> Task | None:
     """Mark a task open or done."""
 
