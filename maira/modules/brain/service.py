@@ -15,6 +15,7 @@ from maira.core.interfaces.desktop import DesktopController
 from maira.core.interfaces.planner import Planner
 from maira.infrastructure.llm.ollama.client import OLLAMA_UNAVAILABLE_USER_MESSAGE
 from maira.infrastructure.persistence.sqlite.repositories import ConversationRepository
+from maira.modules.automation.chat import ReminderChat
 from maira.modules.automation.parser import parse_schedule_request
 from maira.modules.desktop_controller.intent import parse_desktop_request
 from maira.modules.brain.context import (
@@ -82,6 +83,7 @@ class BrainService(Brain):
     self._memory_worker = memory_worker
     self._recall_mode = recall_mode if recall_mode in {"keyword", "semantic"} else "keyword"
     self._automation = automation
+    self._reminder_chat = ReminderChat(automation) if automation is not None else None
     self._desktop = desktop
     self._planner_chat = (
       PlannerChat(planner, briefing or BriefingService(planner, automation)) if planner is not None else None
@@ -143,6 +145,15 @@ class BrainService(Brain):
     # Skills: "install skill owner/repo", "my skills", and yes/no to running a skill script.
     if self._skills is not None and self._try_skill_command(intent_text, voice=voice):
       return
+
+    # Managing reminders ("my reminders", "remove reminder <name>") — before creating one, so
+    # "cancel the reminder at 6pm" is never read as a new 6pm reminder.
+    if self._reminder_chat is not None:
+      reply = self._reminder_chat.handle(intent_text)
+      if reply is not None:
+        self._reply_locally(intent_text, reply)
+        self._bus.publish("automation.changed", {"reason": "chat"})
+        return
 
     # Tasks and notes ("add task …", "what's pending", "done 2") — works by voice too.
     if self._planner_chat is not None and self._try_planner_from_chat(intent_text):
@@ -206,10 +217,13 @@ class BrainService(Brain):
         }
       )
 
-    if skill is not None and self._skills is not None:
-      system_prompt = f"{skill.prompt}\n\n---\n\n{system_prompt}"
-      # Ollama's default context (2048–4096 tokens) would silently cut the skill off.
+    if self._skills is not None and self._skills.enabled and self._skills.store.packs():
+      # Ollama's default context (2048–4096 tokens) would silently cut a skill off. The same size
+      # goes on every request: Ollama reloads the whole model whenever num_ctx changes, so
+      # switching between skill and plain messages would reload it each time (seconds per reply).
       llm_options["num_ctx"] = self._skills.context_window
+    if skill is not None:
+      system_prompt = f"{skill.prompt}\n\n---\n\n{system_prompt}"
       self._bus.publish("skill.used", {"name": skill.skill.name, "explicit": skill.explicit})
 
     trace.mark("context_done")
