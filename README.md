@@ -99,6 +99,14 @@ jazzband/prettytable skill install karo                                   (any r
   changes a skill's scripts turns its permission off again.
 - Downloads use `git` when installed, otherwise the GitHub zip. Skills live in `data/skills/`.
 
+**A ready-made example is bundled:** `sample_skills/pdf-page-splitter/` splits a PDF into a page
+range, a specific list of pages, or one file per page — using PyMuPDF, which Ultron already ships
+with, so it works on the first run with no extra download. Install it as a local folder:
+```
+install skill ./sample_skills/pdf-page-splitter
+```
+Then ask normally: "split pages 3 to 7 of C:\Users\Ayush\Downloads\report.pdf into a new file."
+
 ## Better voices (optional)
 
 Kokoro is built in. Two higher-quality local voices can be installed, each in
