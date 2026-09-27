@@ -216,6 +216,7 @@ class SkillStore:
             scripts=item.scripts,
             warnings=scan_skill(folder, item.scripts),
             scripts_hash=scripts_hash,
+            purpose=before.purpose if before else "",
           )
           pack.skills.append(skill)
           (report.updated if before else report.added).append(skill.name)
@@ -281,3 +282,17 @@ class SkillStore:
   def set_scripts_allowed(self, skill_id: str, allowed: bool) -> Skill:
     """Only the Settings screen calls this (never chat), after showing the warnings."""
     return self._set(skill_id, scripts_allowed=bool(allowed))
+
+  def set_purpose(self, skill_id: str, purpose: str) -> Skill:
+    """What the user said to use this skill for, in their own words."""
+    return self._set(skill_id, purpose=purpose.strip())
+
+  def set_pack_purpose(self, pack_id: str, purpose: str) -> None:
+    """Same purpose text for every skill in a repo (used right after installing it)."""
+    with self._lock:
+      pack = self._packs.get(pack_id)
+      if pack is None:
+        raise SkillError(f"No skill pack called {pack_id}.")
+      for skill in pack.skills:
+        skill.purpose = purpose.strip()
+      self._changed()

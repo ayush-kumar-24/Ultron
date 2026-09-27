@@ -81,9 +81,16 @@ class SkillsPanel(QWidget):
     row.addWidget(self.source, stretch=1)
     row.addWidget(self.install_btn)
     add.addLayout(row)
+    self.purpose_new = QLineEdit()
+    self.purpose_new.setPlaceholderText(
+      "What will you use it for? (optional — e.g. \"filling government pdf forms\") "
+      "Then it's used automatically, no need to say its name."
+    )
+    self.purpose_new.returnPressed.connect(self.install)
+    add.addWidget(self.purpose_new)
     self.install_state = _muted(
       "Examples: anthropics/skills · obra/superpowers · any repo (its README becomes the skill). "
-      "You can also say it in chat: “install skill owner/repo”."
+      "You can also say it in chat: “install skill owner/repo” or “install owner/repo for filling pdf forms”."
     )
     add.addWidget(self.install_state)
     root.addWidget(add_card)
@@ -127,6 +134,15 @@ class SkillsPanel(QWidget):
     self.details_body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     details.addWidget(self.details_title)
     details.addWidget(self.details_body)
+    purpose_row = QHBoxLayout()
+    self.purpose_label = QLabel("Use it for")
+    self.purpose_label.setObjectName("Secondary")
+    self.purpose_edit = QLineEdit()
+    self.purpose_edit.setPlaceholderText('e.g. "filling government pdf forms" — then it runs automatically, unasked')
+    self.purpose_edit.editingFinished.connect(self._save_purpose)
+    purpose_row.addWidget(self.purpose_label)
+    purpose_row.addWidget(self.purpose_edit, stretch=1)
+    details.addLayout(purpose_row)
     buttons = QHBoxLayout()
     self.scripts_btn = QPushButton("Allow scripts")
     self.update_btn = QPushButton("Update")
@@ -177,10 +193,11 @@ class SkillsPanel(QWidget):
         child = QTreeWidgetItem([
           f"/{skill.name}" + (f"  · {kind}" if kind else ""),
           self._scripts_text(skill),
-          skill.description,
+          f"★ {skill.purpose}" if skill.purpose else skill.description,
         ])
         child.setData(0, _ROLE, ("skill", skill.id))
-        child.setToolTip(2, skill.description)
+        tooltip = f"You use it for: {skill.purpose}\n\n{skill.description}" if skill.purpose else skill.description
+        child.setToolTip(2, tooltip)
         child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         child.setCheckState(0, Qt.CheckState.Checked if skill.enabled else Qt.CheckState.Unchecked)
         if skill.scripts:
@@ -209,7 +226,9 @@ class SkillsPanel(QWidget):
       shown = 0
       for j in range(top.childCount()):
         child = top.child(j)
-        hit = not needle or needle in child.text(0).lower() or needle in child.text(2).lower()
+        skill = self.store.get(child.data(0, _ROLE)[1])
+        haystack = child.text(0).lower() + " " + child.text(2).lower() + " " + (skill.purpose.lower() if skill else "")
+        hit = not needle or needle in haystack
         child.setHidden(not hit)
         shown += hit
       top.setHidden(bool(needle) and shown == 0 and needle not in top.text(0).lower())
@@ -258,6 +277,8 @@ class SkillsPanel(QWidget):
     self.scripts_btn.setVisible(bool(skill and skill.scripts))
     for button in (self.update_btn, self.remove_btn, self.folder_btn):
       button.setVisible(pack is not None)
+    self.purpose_label.setVisible(skill is not None)
+    self.purpose_edit.setVisible(skill is not None)
     if pack is None:
       self.details_title.setText("Select a skill or repo")
       self.details_body.setText("")
@@ -271,6 +292,9 @@ class SkillsPanel(QWidget):
         f"{f' · commit {pack.commit[:8]}' if pack.commit else ''}\n{pack.web_url}"
       )
       return
+    self.purpose_edit.blockSignals(True)
+    self.purpose_edit.setText(skill.purpose)
+    self.purpose_edit.blockSignals(False)
     lines = [skill.description or "(no description)", "", f"Use it: /{skill.name} <request>"]
     if skill.kind == KIND_REPO:
       lines.append("This repo has no SKILL.md, so Ultron learns from its README and agent instruction files.")
@@ -304,16 +328,26 @@ class SkillsPanel(QWidget):
     if answer == QMessageBox.StandardButton.Yes:
       self.store.set_scripts_allowed(skill.id, True)
 
+  def _save_purpose(self) -> None:
+    _pack, skill = self._selection()
+    if skill is None:
+      return
+    text = self.purpose_edit.text().strip()
+    if text != skill.purpose:
+      self.store.set_purpose(skill.id, text)
+
   # --- install / update / remove -------------------------------------------------------------------
 
   def install(self, text: str | None = None) -> None:
     source = (text if isinstance(text, str) else self.source.text()).strip()
     if not source or self._busy:
       return
-    reply = self.service.start_install(source, notify=self._install_done.emit)
+    purpose = self.purpose_new.text().strip()
+    reply = self.service.start_install(source, notify=self._install_done.emit, purpose=purpose or None)
     self.install_state.setText(reply.text)
     if reply.text.startswith(("Installing", "Updating")):
       self._set_busy(True)
+      self.purpose_new.clear()
 
   def _set_busy(self, busy: bool) -> None:
     self._busy = busy

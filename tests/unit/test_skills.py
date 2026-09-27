@@ -20,7 +20,7 @@ from maira.modules.skills.prompt import build_skill_prompt
 from maira.modules.skills.runner import RunError, execute, extract_command, plan_run
 from maira.modules.skills.service import SkillService
 from maira.modules.skills.source import SkillSource, SourceError, parse_source
-from maira.modules.skills.store import SkillStore
+from maira.modules.skills.store import SkillError, SkillStore
 
 PDF_SKILL = """---
 name: pdf
@@ -495,3 +495,79 @@ def test_several_commands_in_one_message(service, store, skill_repo, tmp_path) -
   # A mix of a command and a normal question goes to the AI untouched.
   assert service.handle("my skills\nand how are you?") is None
   assert len(store.packs()) == 2
+
+
+# --- purpose: the user's own words for when to use a skill --------------------------------------
+
+
+def test_purpose_carries_over_on_update(store, skill_repo) -> None:
+  store.install(str(skill_repo))
+  store.set_purpose("local-repo/pdf", "filling government forms")
+  store.install(str(skill_repo))  # a plain update, no new purpose given
+  assert store.get("local-repo/pdf").purpose == "filling government forms"
+  assert store.get("local-repo/meeting-notes").purpose == ""
+
+
+def test_set_pack_purpose_applies_to_every_skill(store, skill_repo) -> None:
+  store.install(str(skill_repo))
+  store.set_pack_purpose("local-repo", "office paperwork")
+  assert store.get("local-repo/pdf").purpose == "office paperwork"
+  assert store.get("local-repo/meeting-notes").purpose == "office paperwork"
+  with pytest.raises(SkillError):
+    store.set_pack_purpose("no-such-pack", "x")
+
+
+def test_matcher_prefers_the_users_own_purpose(store, skill_repo) -> None:
+  store.install(str(skill_repo))
+  # "renew my passport" matches nothing in the pdf skill's own description.
+  assert SkillMatcher(store.skills(enabled_only=True)).match("help me renew my passport") is None
+  store.set_purpose("local-repo/pdf", "renewing my passport application")
+  match = SkillMatcher(store.skills(enabled_only=True)).match("help me renew my passport")
+  assert isinstance(match, SkillMatch) and match.skill.name == "pdf" and not match.explicit
+
+
+def test_prompt_tells_the_model_the_users_purpose(store, skill_repo) -> None:
+  store.install(str(skill_repo))
+  store.set_purpose("local-repo/pdf", "renewing my passport application")
+  prompt = build_skill_prompt(store, store.get("local-repo/pdf"), "x", 6000)
+  assert "The user said to use this skill for: renewing my passport application." in prompt
+
+
+@pytest.mark.parametrize(
+  ("text", "purpose"),
+  [
+    ("install skill {p} for filling government pdf forms", "filling government pdf forms"),
+    ("install {p} to organize my scanned documents", "organize my scanned documents"),
+  ],
+)
+def test_install_with_purpose(service, skill_repo, text, purpose) -> None:
+  message = _wait_install(service, text.format(p=skill_repo))
+  assert message.startswith("Installed repo: 2 skills")
+  assert f"whenever you need to: {purpose}." in message
+  pack = service.store.pack("local-repo")
+  assert all(skill.purpose == purpose for skill in pack.skills)
+
+
+def test_set_purpose_command(service, store, skill_repo) -> None:
+  store.install(str(skill_repo))
+  reply = service.handle("pdf skill is for filling government forms")
+  assert reply.text == "Got it. I'll use pdf automatically whenever you need to: filling government forms."
+  assert store.get("local-repo/pdf").purpose == "filling government forms"
+
+  reply = service.handle("purpose of skill meeting-notes is writing standup summaries")
+  assert store.get("local-repo/meeting-notes").purpose == "writing standup summaries"
+
+  reply = service.handle("purpose of repo is office paperwork")
+  assert "skills from repo" in reply.text
+  assert store.get("local-repo/pdf").purpose == "office paperwork"
+
+  assert 'No skill called "nothing"' in service.handle("nothing skill is for testing").text
+  assert "Tell me what it's for" in service.handle("pdf skill is for .").text
+
+
+def test_purpose_shown_in_describe(service, store, skill_repo) -> None:
+  store.install(str(skill_repo))
+  store.set_purpose("local-repo/pdf", "filling government forms")
+  assert "You use it for: filling government forms" in service.handle("what does the pdf skill do").text
+  listing = service.handle("my skills").text
+  assert "pdf — filling government forms" in listing

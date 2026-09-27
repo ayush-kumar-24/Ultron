@@ -25,6 +25,7 @@ class Skill:
   scripts: list[str] = field(default_factory=list)  # relative to the skill folder
   warnings: list[str] = field(default_factory=list)  # from the safety scan
   scripts_hash: str = ""  # an update that changes scripts turns scripts_allowed off again
+  purpose: str = ""  # what the user said to use it for, in their own words
 
   def to_dict(self) -> dict[str, Any]:
     return asdict(self)

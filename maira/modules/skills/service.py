@@ -47,6 +47,18 @@ _TOGGLE = [
 _INFO = [
   re.compile(r"^(?:what\s+(?:does|is)\s+(?:the\s+)?(?P<name>[\w./-]+)\s+skill(?:\s+do)?|(?:about|info|describe)\s+(?:the\s+)?skill\s+(?P<name2>[\w./-]+)|skill\s+(?P<name3>[\w./-]+)\s+(?:info|details|kya\s+karta\s+hai))\s*\??$", re.IGNORECASE),
 ]
+# A standing intent, not a one-off run: "pdf skill is for filling forms" -> used automatically
+# from then on, whenever a message matches that purpose, without saying "/pdf" again.
+_PURPOSE = [
+  re.compile(r"^(?:remember,?\s+)?(?:the\s+)?(?P<name>[\w./-]+)\s+skill\s+is\s+for\s+(?P<purpose>.+)$", re.IGNORECASE | re.DOTALL),
+  re.compile(r"^(?:set\s+)?(?:the\s+)?purpose\s+of\s+(?:the\s+)?(?:skill\s+)?(?P<name>[\w./-]+)\s+(?:is|to)\s+(?P<purpose>.+)$", re.IGNORECASE | re.DOTALL),
+  re.compile(r"^(?P<name>[\w./-]+)\s+skill\s+ka\s+kaam\s+hai\s+(?P<purpose>.+)$", re.IGNORECASE | re.DOTALL),
+]
+# A trailing "for/to <purpose>" on an install request, e.g. "install skill owner/repo for filling
+# government pdf forms" — split off, then the remainder must still be a valid install command.
+_PURPOSE_SUFFIX = re.compile(
+  r"^(?P<rest>.+?)\s+(?:for|to|taaki|jisse|jisliye)\s+(?P<purpose>[a-z].{4,})$", re.IGNORECASE | re.DOTALL
+)
 
 
 @dataclass(frozen=True)
@@ -139,10 +151,21 @@ class SkillService:
 
   def _command(self, text: str) -> Callable[[], SkillReply] | None:
     """What a single line asks for, not yet done (None = not a skill command)."""
+    # Tried first: a local-path pattern can otherwise swallow " for/to <purpose>" as
+    # part of the path, since folder names may contain spaces.
+    installing = self._install_with_purpose(text)
+    if installing is not None:
+      return installing
     for pattern in _INSTALL:
       match = pattern.match(text)
       if match:
         return lambda src=match.group("src"): self.start_install(src)
+    for pattern in _PURPOSE:
+      match = pattern.match(text)
+      if match:
+        return lambda name=match.group("name"), purpose=match.group("purpose"): SkillReply(
+          self._set_purpose(name, purpose)
+        )
     if _LIST.match(text):
       return lambda: SkillReply(self.describe_all())
     for pattern in _REMOVE:
@@ -165,7 +188,31 @@ class SkillService:
           return lambda skill=found[0]: SkillReply(self.describe(skill))
     return None
 
-  def start_install(self, source_text: str, *, notify: Callable[[str], None] | None = None) -> SkillReply:
+  def _install_with_purpose(self, text: str) -> Callable[[], SkillReply] | None:
+    """"install skill X for/to <purpose>": split off the purpose, then try the rest as normal.
+
+    Only used when the remaining part is a real, parseable source — otherwise a local folder
+    whose own name happens to contain " to " or " for " would lose part of its path.
+    """
+    match = _PURPOSE_SUFFIX.match(text)
+    if match is None:
+      return None
+    rest, purpose = match.group("rest").strip(), match.group("purpose").strip()
+    for pattern in _INSTALL:
+      installed = pattern.match(rest)
+      if installed is None:
+        continue
+      src = installed.group("src")
+      try:
+        parse_source(src)
+      except SourceError:
+        continue  # not a real source once split; let the plain (unsplit) match decide instead
+      return lambda src=src, purpose=purpose: self.start_install(src, purpose=purpose)
+    return None
+
+  def start_install(
+    self, source_text: str, *, notify: Callable[[str], None] | None = None, purpose: str | None = None
+  ) -> SkillReply:
     try:
       source = parse_source(source_text)
     except SourceError as exc:
@@ -176,12 +223,15 @@ class SkillService:
         return SkillReply(f"{source.label} is already being installed.")
       self._installing.add(key)
     already = self.store.find_pack(source.web_url) is not None
+    purpose = purpose.strip().rstrip(".") if purpose else ""
 
     def work() -> None:
       tell = notify or self._notify
       try:
         report = self.store.install(source)
-        tell(self._after_install(report))
+        if purpose:
+          self.store.set_pack_purpose(report.pack.id, purpose)
+        tell(self._after_install(report, purpose))
       except (SkillError, SourceError, RuntimeError, OSError) as exc:
         logger.warning("Skill install failed for {}: {}", source.label, exc)
         tell(f"Couldn't install {source.label}: {exc}")
@@ -196,11 +246,13 @@ class SkillService:
     verb = "Updating" if already else "Installing"
     return SkillReply(f"{verb} skills from {source.label}… I'll tell you here when it's ready.")
 
-  def _after_install(self, report) -> str:
+  def _after_install(self, report, purpose: str = "") -> str:
     text = report.summary
     skills = report.pack.skills
     first = skills[0] if skills else None
-    if first is not None:
+    if purpose:
+      text += f' I\'ll use {"it" if len(skills) == 1 else "these"} automatically whenever you need to: {purpose}.'
+    elif first is not None:
       if first.kind == KIND_REPO:
         text += f' Ask about it normally, or say "/{first.name} <question>".'
       else:
@@ -214,6 +266,20 @@ class SkillService:
         "Settings → Skills."
       )
     return text
+
+  def _set_purpose(self, name: str, purpose: str) -> str:
+    purpose = " ".join(purpose.split()).rstrip(".")
+    if not purpose:
+      return "Tell me what it's for, e.g. \"pdf skill is for filling government forms\"."
+    found = self.store.find(name)
+    if found:
+      self.store.set_purpose(found[0].id, purpose)
+      return f'Got it. I\'ll use {found[0].name} automatically whenever you need to: {purpose}.'
+    pack = self.store.find_pack(name)
+    if pack is not None:
+      self.store.set_pack_purpose(pack.id, purpose)
+      return f'Got it. I\'ll use skills from {pack.label} automatically whenever you need to: {purpose}.'
+    return f'No skill called "{name}". Say "my skills" to see them.'
 
   def _remove(self, name: str) -> str:
     pack = self.store.find_pack(name)
@@ -271,6 +337,8 @@ class SkillService:
   def describe(self, skill: Skill) -> str:
     pack = self.store.pack(skill.pack)
     lines = [f"/{skill.name} — from {pack.label if pack else skill.pack}", skill.description or "(no description)"]
+    if skill.purpose:
+      lines.append(f"You use it for: {skill.purpose}")
     state = "on" if skill.enabled else "off"
     if skill.scripts:
       scripts = "allowed" if skill.scripts_allowed else "not allowed (Settings → Skills)"
@@ -292,10 +360,14 @@ class SkillService:
       names = []
       for skill in pack.skills[:12]:
         mark = "" if skill.enabled else " (off)"
-        names.append(f"{skill.name}{mark}")
+        purpose = f" — {skill.purpose}" if skill.purpose else ""
+        names.append(f"{skill.name}{mark}{purpose}")
       more = f" +{len(pack.skills) - 12} more" if len(pack.skills) > 12 else ""
       lines.append(f"• {pack.label}: {', '.join(names)}{more}")
-    lines.append('Use one by asking normally, or "/name <request>". Manage them in Settings → Skills.')
+    lines.append(
+      'Use one by asking normally, or "/name <request>". Say "<name> skill is for <task>" so it is '
+      "used automatically for that. Manage them in Settings → Skills."
+    )
     return "\n".join(lines)
 
   # --- approvals ------------------------------------------------------------------------

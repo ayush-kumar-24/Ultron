@@ -82,3 +82,42 @@ def test_bad_source_and_chat_changes_refresh(qtbot, panel, repo) -> None:
   assert "Only GitHub" in panel.install_state.text() and not panel._busy  # noqa: SLF001
   panel.store.install(str(repo))  # e.g. installed from chat
   qtbot.waitUntil(lambda: panel.tree.topLevelItemCount() == 1)
+
+
+def test_install_with_purpose_field(qtbot, panel, repo) -> None:
+  panel.source.setText(str(repo))
+  panel.purpose_new.setText("keeping my meeting notes tidy")
+  panel.install_btn.click()
+  qtbot.waitUntil(lambda: panel.tree.topLevelItemCount() == 1 and not panel._busy, timeout=10000)  # noqa: SLF001
+  assert "whenever you need to: keeping my meeting notes tidy" in panel.install_state.text()
+  assert panel.purpose_new.text() == ""  # cleared once the install starts
+  assert all(s.purpose == "keeping my meeting notes tidy" for s in panel.store.skills())
+
+
+def test_purpose_edit_saves_per_skill_and_shows_in_tree(qtbot, panel, repo) -> None:
+  panel.store.install(str(repo))
+  qtbot.waitUntil(lambda: panel.tree.topLevelItemCount() == 1)
+  pdf_item = _children(panel)["/pdf"]
+  notes_item = _children(panel)["/notes"]
+  assert not panel.purpose_edit.isVisibleTo(panel)  # nothing selected yet
+
+  panel.tree.setCurrentItem(pdf_item)
+  assert panel.purpose_edit.isVisibleTo(panel) and panel.purpose_edit.text() == ""
+  panel.purpose_edit.setText("filling government forms")
+  panel.purpose_edit.editingFinished.emit()
+  assert panel.store.get("local-myskills/pdf").purpose == "filling government forms"
+
+  # The tree shows the user's own words, marked with a star; the other skill is unaffected.
+  qtbot.waitUntil(lambda: _children(panel)["/pdf"].text(2) == "★ filling government forms")
+  assert _children(panel)["/notes"].text(2) != "★ filling government forms"
+  assert panel.store.get("local-myskills/notes").purpose == ""
+
+  # Selecting the repo itself (not one skill) hides the purpose editor.
+  panel.tree.setCurrentItem(panel.tree.topLevelItem(0))
+  assert not panel.purpose_edit.isVisibleTo(panel)
+
+  # Re-selecting the skill shows its saved purpose, and search matches on it too.
+  panel.tree.setCurrentItem(_children(panel)["/pdf"])
+  assert panel.purpose_edit.text() == "filling government forms"
+  panel.search.setText("government")
+  assert not _children(panel)["/pdf"].isHidden() and _children(panel)["/notes"].isHidden()

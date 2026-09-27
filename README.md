@@ -78,6 +78,18 @@ jazzband/prettytable skill install karo                                   (any r
 - **Using them:** just ask ("merge these two pdf files") and the matching skill is used, or call
   one by name: `/pdf merge a.pdf b.pdf`, "use the pdf skill to …". A small pop-up shows which skill
   was used. The skill's instructions go into the prompt, and Ollama's context is raised to fit them.
+- **Say what it's for, and it's used automatically — no need to say its name again.** A repo's own
+  description is sometimes generic or code-focused, so tell Ultron in your own words:
+  ```
+  install jazzband/prettytable to print tables nicely in python
+  pdf skill is for filling government forms
+  purpose of skill meeting-notes is writing standup summaries
+  ```
+  From then on, a plain message like "help me fill this form" or "how do I show this as a table"
+  uses that skill, even if it never mentions the skill's name. Set or change it any time in chat
+  or in **Settings → Skills** (there's a "Use it for" field next to each skill, and one on the
+  install box too). Installing a multi-skill repo with a purpose applies it to every skill in it;
+  name one skill specifically to set its own.
 - **Managing:** "my skills", "update skills", "remove skills anthropics/skills", "turn off skill pdf".
 - **Scripts are off by default.** A skill's scripts can run only after you allow them for that
   skill in Settings → Skills (you see a safety check first), and Ultron still asks before every run

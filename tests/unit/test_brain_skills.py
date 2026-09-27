@@ -132,3 +132,17 @@ def test_cancel_and_other_message_drop_the_offer(setup) -> None:
   assert skills.pending is not None
   brain.send_message("what is a pdf anyway")
   assert skills.pending is None
+
+
+def test_auto_selects_from_a_custom_purpose(setup) -> None:
+  """A skill with no obvious match still gets used once the user states its purpose."""
+  store, _skills, make, events = setup
+  brain, llm = make(["Sure, here's how to renew it."])
+  brain.send_message("pdf skill is for renewing my passport application")
+  assert store.get("local-repo/pdf").purpose == "renewing my passport application"
+
+  brain.send_message("help me renew my passport")
+  system = llm.calls[-1][0]["content"]
+  assert 'You are using the skill "pdf"' in system
+  assert "The user said to use this skill for: renewing my passport application." in system
+  assert events["used"][-1] == "pdf"

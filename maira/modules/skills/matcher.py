@@ -119,7 +119,7 @@ class SkillMatcher:
 
   def __init__(self, skills: list[Skill]) -> None:
     self._skills = [s for s in skills if s.enabled]
-    self._docs: list[tuple[Skill, set[str], dict[str, int], int]] = []
+    self._docs: list[tuple[Skill, set[str], dict[str, int], int, set[str]]] = []
     df: dict[str, int] = {}
     for skill in self._skills:
       name_tokens = tokens(skill.name.replace("-", " "))
@@ -127,8 +127,9 @@ class SkillMatcher:
       for word in _words(skill.description):
         counts[word] = counts.get(word, 0) + 1
       name_words = len([w for w in re.split(r"[-_\s]+", skill.name) if w])
-      self._docs.append((skill, name_tokens, counts, name_words))
-      for token in name_tokens | set(counts):
+      purpose_tokens = tokens(skill.purpose)
+      self._docs.append((skill, name_tokens, counts, name_words, purpose_tokens))
+      for token in name_tokens | set(counts) | purpose_tokens:
         df[token] = df.get(token, 0) + 1
     count = max(1, len(self._skills))
     self._idf = {t: math.log(1 + count / n) + 1.0 for t, n in df.items()}
@@ -144,13 +145,17 @@ class SkillMatcher:
     if not query:
       return None
     best: tuple[float, Skill] | None = None
-    for skill, name_tokens, counts, name_words in self._docs:
+    for skill, name_tokens, counts, name_words, purpose_tokens in self._docs:
       if skill.kind == KIND_COMMAND:
         continue  # commands run only when called: /name
       name_hits = query & name_tokens
       desc_hits = (query & set(counts)) - name_hits
+      purpose_hits = query & purpose_tokens
       repeated = any(counts[t] >= 2 for t in desc_hits)
-      if name_hits:
+      if purpose_hits:
+        # The user's own words for this skill: even one match is a strong signal.
+        strong = True
+      elif name_hits:
         # One common word of a longer name ("plan" in writing-plans) is not enough on its own.
         whole_name = len(name_hits) == name_words
         strong = whole_name or len(name_hits) >= 2 or len(desc_hits) >= 2
@@ -158,7 +163,8 @@ class SkillMatcher:
         strong = len(desc_hits) >= 2 or repeated
       if not strong:
         continue
-      score = sum(self._idf.get(t, 1.0) * 3 for t in name_hits)
+      score = sum(self._idf.get(t, 1.0) * 5 for t in purpose_hits)
+      score += sum(self._idf.get(t, 1.0) * 3 for t in name_hits)
       score += sum(self._idf.get(t, 1.0) * (1 + math.log(counts[t])) for t in desc_hits)
       if best is None or score > best[0]:
         best = (score, skill)

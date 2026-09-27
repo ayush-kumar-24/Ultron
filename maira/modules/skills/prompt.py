@@ -95,6 +95,7 @@ def build_skill_prompt(store: SkillStore, skill: Skill, request: str, max_chars:
   lines = [
     f'You are using the skill "{skill.name}" from {where}.',
     f"What it is for: {skill.description}" if skill.description else "",
+    f"The user said to use this skill for: {skill.purpose}." if skill.purpose else "",
     "Follow the skill's instructions below to help with the user's request. The instructions may "
     "mention tools you don't have (such as editing files, web browsing or sub-agents): skip those "
     "parts and give the best answer you can in your reply.",
