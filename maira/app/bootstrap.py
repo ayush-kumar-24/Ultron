@@ -48,6 +48,7 @@ from maira.modules.memory.service import MemoryService
 from maira.modules.memory.worker import MemoryWorker
 from maira.modules.notifications.service import NotificationService
 from maira.modules.planner.briefing import Briefing, BriefingService
+from maira.modules.agent.service import AgentService
 from maira.modules.skills.service import SkillService
 from maira.modules.skills.store import SkillStore
 from maira.modules.planner.briefing.runner import BriefingRunner
@@ -211,9 +212,12 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
       planner=container.resolve("planner"),
       briefing=container.resolve("briefing"),
       skills=container.resolve("skills"),
+      agent=container.resolve("agent"),
+      context_window=settings.skills.context_window,
     )
 
   container.register("brain", brain_factory)
+  container.register("agent", lambda: _build_agent(container, settings))
 
   def automation_runtime_factory() -> AutomationRunner:
     automation = container.resolve("automation")
@@ -320,6 +324,46 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
     return voice
 
   container.register("voice", voice_factory)
+
+
+def _build_agent(container: Container, settings: Settings) -> AgentService:
+  """The action agent. Folders and the Gmail address are re-read from Settings for every task."""
+  from maira.app.secrets import get_secret  # noqa: PLC0415
+  from maira.app.user_config import UserConfig  # noqa: PLC0415
+  from maira.modules.agent.actions import ActionTools, Contacts  # noqa: PLC0415
+  from maira.modules.agent.files import FileAccess, default_folders  # noqa: PLC0415
+
+  def files() -> FileAccess:
+    chosen = UserConfig().get("agent.folders") or list(settings.agent.folders)
+    if isinstance(chosen, str):
+      chosen = chosen.split(";")
+    folders = [Path(f) for f in chosen if str(f).strip()] or default_folders()
+    return FileAccess(folders, data_dir())
+
+  def tools():
+    access = files()
+    desktop = container.resolve("desktop") if settings.desktop.enabled else None
+    actions = ActionTools(
+      access,
+      Contacts(data_dir() / "contacts.json"),
+      desktop=desktop,
+      email_address=lambda: str(UserConfig().get("agent.email_address") or settings.agent.email_address),
+      email_password=lambda: get_secret("gmail_app_password"),
+    )
+    return access.tools() + actions.tools()
+
+  llm: OllamaClient = container.resolve("llm")
+  options = {"num_ctx": settings.skills.context_window, "temperature": 0.2}
+  return AgentService(
+    lambda model, messages, schemas: llm.chat_tools(messages, schemas, model=model, options=options),
+    tools,
+    folders=lambda: files().describe_roots(),
+    model=settings.agent.model,
+    enabled=settings.agent.enabled,
+    auto_detect=settings.agent.auto_detect,
+    max_steps=settings.agent.max_steps,
+    user_name=lambda: settings.briefing.name,
+  )
 
 
 def _setup_background(

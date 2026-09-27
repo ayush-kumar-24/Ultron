@@ -19,6 +19,7 @@ CATEGORIES: list[tuple[str, str]] = [
   ("briefing", "Daily briefing"),
   ("tasks", "Tasks & reminders"),
   ("control", "Desktop control"),
+  ("agent", "Agent & actions"),
   ("skills", "Skills"),
   ("developer", "Developer"),
   ("status", "System status"),
@@ -146,6 +147,22 @@ FIELDS: list[Field] = [
   Field("desktop.enabled", "Let Ultron open apps and websites", "bool", "control", lambda s: s.desktop.enabled),
   Field("desktop.allow_input", "Let Ultron type and click", "bool", "control", lambda s: s.desktop.allow_input),
   # --- Developer -----------------------------------------------------------------------
+  # --- Agent (applied at once) ----------------------------------------------------
+  Field("agent.enabled", "Let Ultron do tasks on this PC", "bool", "agent", lambda s: s.agent.enabled,
+        help="Files in your chosen folders, apps, music, email and WhatsApp. Changes always ask you first.",
+        restart=False),
+  Field("agent.auto_detect", "Notice tasks automatically", "bool", "agent", lambda s: s.agent.auto_detect,
+        help='Off: only messages starting with "do:" go to the agent.', restart=False),
+  Field("agent.model", "Agent model", "choice", "agent", lambda s: s.agent.model, editable=True,
+        options=[("qwen3.5:4b", "Qwen 3.5 4B — best on a CPU (recommended)"),
+                 ("gemma4:e4b", "Gemma 4 E4B — Google, also fine on a CPU"),
+                 ("qwen3:8b", "Qwen 3 8B — smarter, needs 16 GB RAM, slow on a CPU")],
+        help="Must be installed once: ollama pull <name>. Free and runs on your PC.", restart=False),
+  Field("agent.max_steps", "Most steps per task", "int", "agent", lambda s: s.agent.max_steps,
+        minimum=2, maximum=40, restart=False),
+  Field("agent.email_address", "Your Gmail address", "text", "agent", lambda s: s.agent.email_address,
+        help="Emails are sent from this address. Set the app password below.", restart=False),
+
   # --- Skills (applied at once) ---------------------------------------------------
   Field("skills.enabled", "Use installed skills", "bool", "skills", lambda s: s.skills.enabled, restart=False),
   Field("skills.auto_use", "Pick a matching skill automatically", "bool", "skills", lambda s: s.skills.auto_use,

@@ -96,9 +96,13 @@ def launch_app(name_or_path: str) -> str:
   return target
 
 
+_SCHEME = re.compile(r"^(?:[a-z][a-z0-9+.-]*://|(?:mailto|tel|whatsapp|ms-settings|spotify|file):)", re.IGNORECASE)
+
+
 def open_url(url: str) -> str:
   cleaned = url.strip()
-  if not cleaned.startswith(("http://", "https://", "file:")):
+  # Keep app links such as whatsapp://send?… or spotify:track:…; only bare hosts get https://.
+  if not _SCHEME.match(cleaned):
     cleaned = "https://" + cleaned
   webbrowser.open(cleaned)
   return cleaned

@@ -148,10 +148,22 @@ class SingleInstanceGuard(QObject):
     while self._server.hasPendingConnections():
       connection = self._server.nextPendingConnection()
       self._connections.add(connection)
-      connection.readyRead.connect(lambda c=connection: self._on_ready(c))
-      connection.disconnected.connect(lambda c=connection: self._on_disconnected(c))
+      # Bound methods, not lambdas holding self: a lambda cycle leaves this guard and its sockets
+      # to the garbage collector, which may free a socket while Qt is deleting it (a crash).
+      connection.readyRead.connect(self._on_ready_signal)
+      connection.disconnected.connect(self._on_disconnected_signal)
       if connection.bytesAvailable():
         self._on_ready(connection)
+
+  def _on_ready_signal(self) -> None:
+    connection = self.sender()
+    if isinstance(connection, QLocalSocket):
+      self._on_ready(connection)
+
+  def _on_disconnected_signal(self) -> None:
+    connection = self.sender()
+    if isinstance(connection, QLocalSocket):
+      self._on_disconnected(connection)
 
   def _on_ready(self, connection: QLocalSocket) -> None:
     message = bytes(connection.readAll().data()).strip().decode(errors="replace")

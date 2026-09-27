@@ -169,6 +169,7 @@ class LiveSettingsScreen(QWidget):
     layout.setSpacing(12)
 
     extra = {
+      "agent": self._agent_tools,
       "skills": self._skills_tools,
       "voice": self._voice_tools,
       "ai": self._ai_tools,
@@ -451,6 +452,30 @@ class LiveSettingsScreen(QWidget):
       self.preview_state.setText(f"Preview failed: {error}")
     elif result is not None:
       self.preview_state.setText(result.message)
+
+  # --- Agent -------------------------------------------------------------------------------
+
+  def _agent_tools(self) -> QWidget:
+    from maira.app.secrets import get_secret, set_secret  # noqa: PLC0415
+    from maira.shared.utils.paths import data_dir  # noqa: PLC0415
+    from maira.ui.prototype.screens.agent_panel import AgentPanel  # noqa: PLC0415
+
+    models = self.actions.ollama_models
+    self.agent_panel = AgentPanel(
+      self.config,
+      get_secret=get_secret,
+      set_secret=set_secret,
+      installed_models=(lambda: models(str(self.config.get("ollama.host") or ""))) if models else None,
+      contacts_path=data_dir() / "contacts.json",
+    )
+    # A bound method, not a lambda holding self: that cycle would be freed by the garbage
+    # collector at a random moment, which can crash Qt mid-event.
+    self.changed.connect(self._agent_setting_changed)
+    return self.agent_panel
+
+  def _agent_setting_changed(self, path: str, _value) -> None:
+    if path == "agent.model" and hasattr(self, "agent_panel"):
+      self.agent_panel.refresh_model()
 
   # --- Skills ------------------------------------------------------------------------------
 

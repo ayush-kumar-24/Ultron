@@ -38,6 +38,15 @@ def status_rows(container: Container) -> list[tuple[str, bool, str]]:
     f"{settings.ollama.model} ready" if llm_ok else f"not reachable at {settings.ollama.host} — start Ollama",
   ))
 
+  agent_model = settings.agent.model
+  if llm_ok and settings.agent.enabled:
+    try:
+      names = container.resolve("llm").list_models()
+    except Exception:  # noqa: BLE001
+      names = []
+    ready = any(n == agent_model or n == f"{agent_model}:latest" for n in names)
+    rows.append(("Agent model", ready, f"{agent_model} ready" if ready else f"{agent_model} not installed — ollama pull {agent_model}"))
+
   provider = settings.voice.tts_provider
   installed = voice_tools.is_installed(provider)
   engine = _ENGINE_NAMES.get(provider, provider)
@@ -107,6 +116,10 @@ def build_settings_actions(
   live: dict[str, Callable[[Any], None]] = {}
   if on_name_changed is not None:
     live["briefing.name"] = lambda value: on_name_changed(str(value or ""))
+  agent = _optional(container, "agent")
+  if agent is not None:
+    for key, cast in (("enabled", bool), ("auto_detect", bool), ("model", str), ("max_steps", int)):
+      live[f"agent.{key}"] = lambda value, key=key, cast=cast: setattr(agent, key, cast(value))
   skills = _optional(container, "skills")
   if skills is not None:
     # Skill settings apply at once, no restart.

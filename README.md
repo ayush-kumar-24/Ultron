@@ -61,6 +61,35 @@ stored, so new defaults still reach you.
 
 Changes that need a restart show a **Restart now** bar.
 
+## Agent: let Ultron do tasks on your PC
+
+Give Ultron a goal and it works out the steps:
+
+```
+find my resume in downloads and email it to hr@company.com
+rename every screenshot on my desktop to add today's date
+tell mom on whatsapp that I'll be late
+do: make a Bills folder in Documents and move all invoices there
+```
+
+- **One-time setup:** `ollama pull qwen3.5:4b` (free, runs on a CPU; `gemma4:e4b` also works).
+  Pick it in **Settings → Agent & actions**. Your old small model cannot plan steps reliably.
+- **What it can do:** list, find, read (text, PDF, Word, images), create, edit, move, rename and
+  delete files; open files, apps and websites; play songs; email with attachments (Gmail); WhatsApp
+  text messages; remember contacts ("save contact Mom phone +91 98765 43210").
+- **Only your chosen folders.** Default: Desktop, Documents, Downloads. Change them in Settings.
+- **You approve every change.** Reading and searching happen on their own; writing, moving,
+  deleting, emailing, WhatsApp and saving contacts show exactly what will happen and wait for
+  "yes"/"haan". Edited files are backed up first (`data/agent/backups/`); deleted ones go to the
+  Recycle Bin (`pip install send2trash`) or `data/agent/trash/`.
+- **Email:** add your Gmail address and a Google *app password* (not your real password;
+  <https://myaccount.google.com/apppasswords>) in Settings. It is kept in Windows Credential Manager
+  when `keyring` is installed, otherwise in `data/secrets.json` on this PC.
+- **WhatsApp:** opens the chat (WhatsApp Desktop, or WhatsApp Web) with your message and presses
+  Send. Text only for now.
+- Questions ("how do I send an email in python?") stay normal chat. Start with `do:` to force a task.
+- On a CPU each step takes a while (roughly 10–60 s); tasks show their steps as they run.
+
 ## Skills from any GitHub repo
 
 Ultron can adopt skills from GitHub. Type in chat (or use **Settings → Skills**):

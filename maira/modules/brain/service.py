@@ -28,8 +28,10 @@ from maira.modules.brain.streaming import TokenStreamer
 from maira.modules.memory.worker import MemoryWorker
 from maira.modules.planner.briefing import BriefingService
 from maira.modules.planner.chat import PlannerChat
+from maira.modules.agent.runner import Outcome
+from maira.modules.agent.service import AgentService, approval_prompt
 from maira.modules.skills.matcher import UnknownSkill
-from maira.shared.utils.attachments import visible_text
+from maira.shared.utils.attachments import FILE_MARKER, visible_text
 from maira.modules.skills.service import PendingAction, SkillContext, SkillService
 from maira.shared.utils.latency import begin_trace, clear_trace, current_trace
 
@@ -67,6 +69,8 @@ class BrainService(Brain):
     planner: Planner | None = None,
     briefing: BriefingService | None = None,
     skills: SkillService | None = None,
+    agent: AgentService | None = None,
+    context_window: int | None = None,
   ) -> None:
     self._llm = llm
     self._repo = repository
@@ -89,6 +93,8 @@ class BrainService(Brain):
       PlannerChat(planner, briefing or BriefingService(planner, automation)) if planner is not None else None
     )
     self._skills = skills
+    self._agent = agent
+    self._context_window = context_window
     if skills is not None:
       skills.set_notifier(self.announce)  # "skills installed" arrives later in chat
     # One message at a time: chat, voice and announcements share one session.
@@ -142,6 +148,14 @@ class BrainService(Brain):
     # could be misread as "remind me…", "install skill…", or a desktop command.
     intent_text = visible_text(cleaned)
 
+    # A step of an agent task is waiting for "yes" / "no".
+    if self._agent is not None and self._agent.waiting:
+      progress: list[str] = []
+      outcome = self._agent.answer(intent_text, progress=self._agent_progress(progress))
+      if outcome is not None:
+        self._agent_reply(intent_text, outcome, progress)
+        return
+
     # Skills: "install skill owner/repo", "my skills", and yes/no to running a skill script.
     if self._skills is not None and self._try_skill_command(intent_text, voice=voice):
       return
@@ -162,6 +176,17 @@ class BrainService(Brain):
     # Timed reminders ("remind me in 10 minutes to …") — chat and voice.
     if self._automation is not None:
       if self._try_schedule_from_chat(intent_text):
+        return
+
+    # A job to do on this PC ("send my resume to …", "rename report.pdf …") -> the action agent.
+    # Not for attached files: their content is already in the message for a normal answer.
+    if self._agent is not None and FILE_MARKER not in cleaned:
+      goal = self._agent.goal_for(intent_text)
+      if goal is not None:
+        progress = []
+        self._streamer.publish_context({"query": intent_text, "memory_ids": [], "memory_titles": [], "char_count": 0})
+        outcome = self._agent.start(goal, history=self._agent_history(), progress=self._agent_progress(progress))
+        self._agent_reply(intent_text, outcome, progress)
         return
 
     # Immediate desktop OS control (open / type / click / hotkey / play).
@@ -217,7 +242,9 @@ class BrainService(Brain):
         }
       )
 
-    if self._skills is not None and self._skills.enabled and self._skills.store.packs():
+    if self._context_window:
+      llm_options["num_ctx"] = self._context_window  # same size as the agent: no model reloads
+    elif self._skills is not None and self._skills.enabled and self._skills.store.packs():
       # Ollama's default context (2048–4096 tokens) would silently cut a skill off. The same size
       # goes on every request: Ollama reloads the whole model whenever num_ctx changes, so
       # switching between skill and plain messages would reload it each time (seconds per reply).
@@ -301,6 +328,30 @@ class BrainService(Brain):
       self._bus.publish("briefing.requested", {"speech": reply.speech})
     logger.info("Planner from chat: {}", reply.text.splitlines()[0])
     return True
+
+  def _agent_progress(self, lines: list[str]):
+    def publish(line: str) -> None:
+      lines.append(line)
+      self._streamer.publish_token(line)
+
+    return publish
+
+  def _agent_history(self) -> list[dict[str, str]]:
+    """The last few turns, so "send it to her" can refer to earlier messages."""
+    recent = self._session.to_llm_payload()[-6:]
+    return [{"role": m["role"], "content": m["content"][:800]} for m in recent if m.get("role") in ("user", "assistant")]
+
+  def _agent_reply(self, cleaned: str, outcome: Outcome, progress: list[str]) -> None:
+    if outcome.kind == "approval":
+      text = approval_prompt(outcome.text)
+    elif outcome.kind == "error":
+      text = f"I couldn't do that: {outcome.text}"
+    else:
+      text = outcome.text
+    if progress:
+      text = "\n" + text  # a blank line after the step list
+    self._streamer.publish_token(text)
+    self._finish_local(cleaned, "".join(progress) + text)
 
   def _try_skill_command(self, cleaned: str, *, voice: bool) -> bool:
     assert self._skills is not None

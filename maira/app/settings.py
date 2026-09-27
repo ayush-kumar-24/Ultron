@@ -119,6 +119,16 @@ class SkillSettings:
 
 
 @dataclass(frozen=True)
+class AgentSettings:
+  enabled: bool
+  model: str  # Ollama model that can call tools
+  auto_detect: bool  # "send my resume to …" goes to the agent without "do:"
+  max_steps: int
+  folders: tuple[str, ...]  # empty = Desktop, Documents, Downloads
+  email_address: str  # Gmail address; the app password lives in secrets
+
+
+@dataclass(frozen=True)
 class Settings:
   app: AppSettings
   paths: PathSettings
@@ -133,6 +143,9 @@ class Settings:
   tasks: TaskSettings
   skills: SkillSettings = field(
     default_factory=lambda: SkillSettings(True, True, 6000, 8192, 120)
+  )
+  agent: AgentSettings = field(
+    default_factory=lambda: AgentSettings(True, "qwen3.5:4b", True, 10, (), "")
   )
 
   @property
@@ -157,6 +170,10 @@ def load_settings() -> Settings:
   briefing_raw = merged.get("briefing", {})
   tasks_raw = merged.get("tasks", {})
   skills_raw = merged.get("skills", {})
+  agent_raw = merged.get("agent", {})
+  folders_raw = agent_raw.get("folders") or []
+  if isinstance(folders_raw, str):
+    folders_raw = [f for f in folders_raw.split(";")]
   stt_raw = voice_raw.get("stt", {}) if isinstance(voice_raw.get("stt"), dict) else {}
   tts_raw = voice_raw.get("tts", {}) if isinstance(voice_raw.get("tts"), dict) else {}
   behavior_raw = voice_raw.get("behavior", {}) if isinstance(voice_raw.get("behavior"), dict) else {}
@@ -273,5 +290,13 @@ def load_settings() -> Settings:
       max_chars=max(1000, int(skills_raw.get("max_chars", 6000))),
       context_window=max(2048, int(skills_raw.get("context_window", 8192))),
       script_timeout=max(5, int(skills_raw.get("script_timeout", 120))),
+    ),
+    agent=AgentSettings(
+      enabled=bool(agent_raw.get("enabled", True)),
+      model=str(agent_raw.get("model") or "qwen3.5:4b"),
+      auto_detect=bool(agent_raw.get("auto_detect", True)),
+      max_steps=max(2, int(agent_raw.get("max_steps", 10))),
+      folders=tuple(str(f).strip() for f in folders_raw if str(f).strip()),
+      email_address=str(agent_raw.get("email_address") or ""),
     ),
   )

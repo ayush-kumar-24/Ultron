@@ -136,3 +136,17 @@ skills:
   context_window: 8192
   # Seconds an approved skill script may run.
   script_timeout: 120
+
+# The action agent: files, apps, music, email and WhatsApp ("send my resume to boss@corp.com").
+agent:
+  enabled: true
+  # An Ollama model that can call tools. Runs on CPU: qwen3.5:4b (default) or gemma4:e4b.
+  # Install once with:  ollama pull qwen3.5:4b
+  model: qwen3.5:4b
+  # Messages like "rename report.pdf to final.pdf" go to the agent without typing "do:".
+  auto_detect: true
+  max_steps: 10
+  # Folders the agent may read and change. Empty = Desktop, Documents and Downloads.
+  folders: []
+  # Gmail address to send from. The app password is set in Settings → Agent (never stored here).
+  email_address: ""
