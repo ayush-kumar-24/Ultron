@@ -28,6 +28,7 @@ from maira.modules.memory.worker import MemoryWorker
 from maira.modules.planner.briefing import BriefingService
 from maira.modules.planner.chat import PlannerChat
 from maira.modules.skills.matcher import UnknownSkill
+from maira.shared.utils.attachments import visible_text
 from maira.modules.skills.service import PendingAction, SkillContext, SkillService
 from maira.shared.utils.latency import begin_trace, clear_trace, current_trace
 
@@ -133,30 +134,35 @@ class BrainService(Brain):
     cleaned = text.strip()
     if not cleaned:
       return
+    # A file attached to the message carries its extracted content after this marker (see
+    # attachments.compose_message). Commands are read from what the user actually typed, never
+    # from inside an attached document — otherwise a date or phrase buried in a PDF's own text
+    # could be misread as "remind me…", "install skill…", or a desktop command.
+    intent_text = visible_text(cleaned)
 
     # Skills: "install skill owner/repo", "my skills", and yes/no to running a skill script.
-    if self._skills is not None and self._try_skill_command(cleaned, voice=voice):
+    if self._skills is not None and self._try_skill_command(intent_text, voice=voice):
       return
 
     # Tasks and notes ("add task …", "what's pending", "done 2") — works by voice too.
-    if self._planner_chat is not None and self._try_planner_from_chat(cleaned):
+    if self._planner_chat is not None and self._try_planner_from_chat(intent_text):
       return
 
     # Timed reminders ("remind me in 10 minutes to …") — chat and voice.
     if self._automation is not None:
-      if self._try_schedule_from_chat(cleaned):
+      if self._try_schedule_from_chat(intent_text):
         return
 
     # Immediate desktop OS control (open / type / click / hotkey / play).
     if not voice:
       if self._desktop is None:
         logger.warning("Desktop controller not wired — play/open commands will use LLM only")
-      elif self._try_desktop_from_chat(cleaned):
+      elif self._try_desktop_from_chat(intent_text):
         return
 
     skill: SkillContext | None = None
     if self._skills is not None:
-      found = self._skills.select(cleaned, voice=voice)
+      found = self._skills.select(intent_text, voice=voice)
       if isinstance(found, UnknownSkill):
         self._reply_locally(cleaned, self._skills.unknown_reply(found))
         return
