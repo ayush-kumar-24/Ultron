@@ -121,35 +121,48 @@ class SkillService:
   # --- chat commands ------------------------------------------------------------------
 
   def handle(self, text: str) -> SkillReply | None:
-    """Skill commands and yes/no to a pending run. None = not about skills."""
-    reply = self._answer_pending(text)
-    if reply is not None:
-      return reply
+    """Skill commands and yes/no to a pending run. None = not about skills.
+
+    Several commands pasted together (one per line) all run, as long as every
+    line is a skill command; otherwise the message is left for the AI.
+    """
+    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    if len(lines) == 1:
+      reply = self._answer_pending(lines[0])
+      if reply is not None:
+        return reply
+    commands = [self._command(line) for line in lines]
+    if not commands or any(command is None for command in commands):
+      return None
+    replies = [command() for command in commands]
+    return SkillReply("\n".join(r.text for r in replies if r.text))
+
+  def _command(self, text: str) -> Callable[[], SkillReply] | None:
+    """What a single line asks for, not yet done (None = not a skill command)."""
     for pattern in _INSTALL:
-      match = pattern.match(text.strip())
+      match = pattern.match(text)
       if match:
-        return self.start_install(match.group("src"))
-    if _LIST.match(text.strip()):
-      return SkillReply(self.describe_all())
+        return lambda src=match.group("src"): self.start_install(src)
+    if _LIST.match(text):
+      return lambda: SkillReply(self.describe_all())
     for pattern in _REMOVE:
-      match = pattern.match(text.strip())
+      match = pattern.match(text)
       if match:
-        return SkillReply(self._remove(match.group("name")))
+        return lambda name=match.group("name"): SkillReply(self._remove(name))
     for pattern in _UPDATE:
-      match = pattern.match(text.strip())
+      match = pattern.match(text)
       if match:
-        return self._update(match.group("name") or "")
+        return lambda name=match.group("name") or "": self._update(name)
     for pattern, on in _TOGGLE:
-      match = pattern.match(text.strip())
+      match = pattern.match(text)
       if match:
-        return SkillReply(self._toggle(match.group("name"), on))
+        return lambda name=match.group("name"), on=on: SkillReply(self._toggle(name, on))
     for pattern in _INFO:
-      match = pattern.match(text.strip())
+      match = pattern.match(text)
       if match:
-        name = match.group("name") or match.group("name2") or match.group("name3")
-        found = self.store.find(name)
+        found = self.store.find(match.group("name") or match.group("name2") or match.group("name3"))
         if found:
-          return SkillReply(self.describe(found[0]))
+          return lambda skill=found[0]: SkillReply(self.describe(skill))
     return None
 
   def start_install(self, source_text: str, *, notify: Callable[[str], None] | None = None) -> SkillReply:

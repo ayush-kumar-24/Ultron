@@ -477,3 +477,21 @@ def test_select_respects_settings(store, skill_repo) -> None:
   assert off.select("/pdf merge") is None
   store.set_enabled("local-repo/pdf", False)
   assert "turned off" in auto.unknown_reply(auto.select("/pdf merge"))
+
+
+def test_several_commands_in_one_message(service, store, skill_repo, tmp_path) -> None:
+  other = tmp_path / "other"
+  _write(other / "README.md", "# Other\n\nA tool that renames photos by date.\n")
+  done = threading.Event()
+  messages: list[str] = []
+  service.set_notifier(lambda m: (messages.append(m), len(messages) == 2 and done.set()))
+  reply = service.handle(f"install skill {skill_repo}\n\n{other} skill install karo\n")
+  assert reply.text.splitlines() == [
+    "Installing skills from repo… I'll tell you here when it's ready.",
+    "Installing skills from other… I'll tell you here when it's ready.",
+  ]
+  assert done.wait(20)
+  assert sorted(m.split(":")[0] for m in messages) == ["Installed other", "Installed repo"]
+  # A mix of a command and a normal question goes to the AI untouched.
+  assert service.handle("my skills\nand how are you?") is None
+  assert len(store.packs()) == 2
