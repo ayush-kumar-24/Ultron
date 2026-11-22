@@ -1,13 +1,16 @@
 """Application bootstrap sequence."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 import os
 from pathlib import Path
 import sys
 import threading
 
+from typing import TYPE_CHECKING
+
 from loguru import logger
-from PySide6.QtWidgets import QApplication
 
 from maira.app.container import Container
 from maira.app.restart import restart_app
@@ -25,11 +28,22 @@ from maira.infrastructure.os.autostart import BACKGROUND_FLAG, AutostartManager
 from maira.infrastructure.persistence.sqlite.connection import SqliteStorage
 from maira.infrastructure.persistence.sqlite.migrations import apply_migrations
 from maira.infrastructure.persistence.sqlite.repositories import (
+  AutomationRunRepository,
+  GoalRepository,
+  KnowledgeRepository,
+  ProjectRepository,
+  CalendarEventRepository,
+  NotificationRepository,
   AutomationRepository,
   ConversationRepository,
   MemoryRepository,
   NoteRepository,
   TaskRepository,
+)
+from maira.infrastructure.persistence.sqlite.repositories.intelligence import (
+  AgentExecutionRepository,
+  ResearchRepository,
+  WorkSessionRepository,
 )
 from maira.infrastructure.speech.audio.stream import AudioStream
 from maira.infrastructure.speech.kokoro.engine import KokoroEngine
@@ -39,14 +53,20 @@ from maira.infrastructure.vector.chromadb.collections import ChromaVectorStore
 from maira.modules.automation.executor import AutomationExecutor
 from maira.modules.automation.parser import LOCAL_TZ
 from maira.modules.automation.runner import AutomationRunner
+from maira.modules.automation.scheduler import AutomationScheduler
 from maira.modules.automation.service import AutomationService
 from maira.modules.brain.conversation import ConversationSession
 from maira.modules.brain.service import BrainService
 from maira.modules.desktop_controller.service import DesktopControllerService
+from maira.modules.vision.service import VisionService
 from maira.modules.memory.policy import MemoryPolicy
 from maira.modules.memory.service import MemoryService
 from maira.modules.memory.worker import MemoryWorker
 from maira.modules.notifications.service import NotificationService
+from maira.modules.orchestration.orchestrator import Orchestrator
+from maira.modules.orchestration.registry import AgentRegistry
+from maira.modules.orchestration.wiring import register_agents, subscribe_activity
+from maira.modules.research.service import ResearchService
 from maira.modules.planner.briefing import Briefing, BriefingService
 from maira.modules.agent.service import AgentService
 from maira.modules.skills.service import SkillService
@@ -63,6 +83,9 @@ from maira.modules.voice.tts.registry import create_tts, ensure_default_tts_prov
 from maira.shared.utils.paths import data_dir, database_path, project_root
 from maira.ui.application import create_qt_application
 from maira.ui.prototype.shell.main_window import PrototypeWindow as MainWindow
+if TYPE_CHECKING:
+  from PySide6.QtWidgets import QApplication
+
 from maira.ui.system_tray import (
   NotificationActionRelay,
   TrayBalloonNotifier,
@@ -73,8 +96,17 @@ from maira.ui.system_tray import (
 
 
 @dataclass
+class Runtime:
+  """Wired services, with no Qt and no HTTP. Both entry points build on this."""
+
+  container: Container
+  lifecycle: Lifecycle
+  settings: Settings
+
+
+@dataclass
 class AppContext:
-  qt_app: QApplication
+  qt_app: "QApplication"
   container: Container
   lifecycle: Lifecycle
   window: MainWindow
@@ -108,6 +140,39 @@ def _build_memory_service(settings: Settings, memory_repository: MemoryRepositor
   return MemoryService(memory_repository, encoder=encoder, vector_store=vector_store)
 
 
+def _build_vision_service(settings: Settings, event_bus) -> VisionService:
+  """Screen capture + OCR. Adapters load lazily, so missing deps are not fatal."""
+  from maira.infrastructure.screen.mss_capture import MssScreenCapture
+  from maira.infrastructure.screen.winocr_reader import WinOcrScreenReader
+
+  return VisionService(
+    MssScreenCapture(),
+    WinOcrScreenReader(lang=settings.vision.ocr_lang),
+    enabled=settings.vision.enabled,
+    bus=event_bus,
+    max_text_chars=settings.vision.max_text_chars,
+  )
+
+
+class _AnnouncingExecutor:
+  """Wraps the executor so a run by the window's timer is recorded like any other."""
+
+  def __init__(self, inner: AutomationExecutor, announce) -> None:
+    self._inner = inner
+    self._announce = announce
+
+  def run(self, job):
+    result = self._inner.run(job)
+    try:
+      self._announce(job, result)
+    except Exception:  # noqa: BLE001 - the job itself already ran
+      logger.exception("Could not record automation run")
+    return result
+
+  def __getattr__(self, name: str):
+    return getattr(self._inner, name)
+
+
 def _register_services(container: Container, settings: Settings, lifecycle: Lifecycle) -> None:
   event_bus = EventBus()
   container.register_instance("event_bus", event_bus)
@@ -126,6 +191,44 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
   container.register_instance("note_repository", note_repository)
   container.register_instance("memory_repository", memory_repository)
   container.register_instance("automation_repository", automation_repository)
+  calendar_repository = CalendarEventRepository(storage)
+  notification_repository = NotificationRepository(storage)
+  automation_run_repository = AutomationRunRepository(storage)
+  container.register_instance("calendar_repository", calendar_repository)
+  container.register_instance("notification_repository", notification_repository)
+  container.register_instance("automation_run_repository", automation_run_repository)
+  container.register_instance("project_repository", ProjectRepository(storage))
+  container.register_instance("goal_repository", GoalRepository(storage))
+  container.register_instance("knowledge_repository", KnowledgeRepository(storage))
+  research_repository = ResearchRepository(storage)
+  execution_repository = AgentExecutionRepository(storage)
+  # Anything still "running" belongs to a process that has exited.
+  research_repository.fail_interrupted()
+  execution_repository.fail_interrupted()
+  container.register_instance("research_repository", research_repository)
+  container.register_instance("agent_execution_repository", execution_repository)
+  container.register_instance("work_session_repository", WorkSessionRepository(storage))
+  registry = AgentRegistry(execution_repository, bus=event_bus)
+  register_agents(registry, container, settings)
+  container.register_instance("agent_registry", registry)
+
+  def announce_job(job, result) -> None:
+    """One automation ran (window or headless): history, a notification, and a live event."""
+    created = notification_repository.create(
+      type="automation",
+      title="Automation ran" if result.ok else "Automation failed",
+      body=f"{job.title} - {result.message}",
+    )
+    automation_run_repository.record(
+      job.id, status="done" if result.ok else "failed", output=result.message
+    )
+    registry.record("automation", job.title, ok=result.ok, error=None if result.ok else result.message)
+    event_bus.publish(
+      "automation", {"id": job.id, "name": job.title, "ok": result.ok, "message": result.message}
+    )
+    event_bus.publish(
+      "notification", {"id": created.id, "type": created.type, "title": created.title, "body": created.body}
+    )
   automation = AutomationService(automation_repository)
   container.register_instance("automation", automation)
   # Every task change (chat, voice, Tasks screen) keeps its reminder in sync.
@@ -168,8 +271,10 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
     allow_input=settings.desktop.allow_input,
   )
   container.register_instance("desktop", desktop)
+  container.register_instance("vision", _build_vision_service(settings, event_bus))
   memory = _build_memory_service(settings, memory_repository)
   container.register_instance("memory", memory)
+  subscribe_activity(registry, event_bus, memory)
 
   memory_worker = MemoryWorker(
     memory if settings.memory.background_encoding else None,
@@ -214,12 +319,37 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
       skills=container.resolve("skills"),
       agent=container.resolve("agent"),
       context_window=settings.skills.context_window,
+      vision=container.resolve("vision"),
     )
 
   container.register("brain", brain_factory)
+  container.register(
+    "research",
+    lambda: ResearchService(
+      research_repository,
+      container.resolve("llm"),
+      knowledge=container.resolve("knowledge_repository"),
+      memory=container.resolve("memory"),
+      conversations=conversation_repository,
+      bus=event_bus,
+    ),
+  )
+  container.register(
+    "orchestrator",
+    lambda: Orchestrator(
+      registry,
+      container.resolve("llm"),
+      knowledge=container.resolve("knowledge_repository"),
+      memory=container.resolve("memory"),
+      conversations=conversation_repository,
+    ),
+  )
   container.register("agent", lambda: _build_agent(container, settings))
 
-  def automation_runtime_factory() -> AutomationRunner:
+  def automation_runtime_factory() -> "AutomationRunner":
+    # QObject-based: imported here so headless never touches Qt.
+    from maira.modules.automation.runner import AutomationRunner
+
     automation = container.resolve("automation")
     brain = container.resolve("brain")
     desktop = container.resolve("desktop")
@@ -231,15 +361,39 @@ def _register_services(container: Container, settings: Settings, lifecycle: Life
       if settings.notifications.enabled:
         container.resolve("notifications").remind(job, message)
       notify(f"Reminder: {message}")
+      created = notification_repository.create(type="reminder", title="Reminder", body=message)
+      event_bus.publish(
+        "notification", {"id": created.id, "type": "reminder", "title": created.title, "body": message}
+      )
 
     executor = AutomationExecutor(
       automation, brain=brain, desktop=desktop, on_notify=notify, on_reminder=remind
     )
-    runner = AutomationRunner(automation, executor, interval_ms=5_000)
+    runner = AutomationRunner(automation, _AnnouncingExecutor(executor, announce_job), interval_ms=5_000)
     lifecycle.on_shutdown(runner.stop)
     return runner
 
   container.register("automation_runner", automation_runtime_factory)
+
+  def automation_scheduler_factory() -> AutomationScheduler:
+    """Headless automations: no Qt loop, so a daemon thread polls due jobs."""
+    from maira.modules.automation.scheduler import AutomationScheduler as _Scheduler
+
+    def notify(message: str) -> None:
+      event_bus.publish("automation.notify", {"message": message})
+
+    executor = AutomationExecutor(
+      container.resolve("automation"),
+      brain=container.resolve("brain"),
+      desktop=container.resolve("desktop"),
+      on_notify=notify,
+    )
+
+    scheduler = _Scheduler(container.resolve("automation"), executor, on_job_ran=announce_job)
+    lifecycle.on_shutdown(scheduler.stop)
+    return scheduler
+
+  container.register("automation_scheduler", automation_scheduler_factory)
 
   def voice_factory() -> VoiceService:
     ensure_default_stt_providers()
@@ -515,6 +669,57 @@ def _setup_task_links(qt_app: QApplication, container: Container, lifecycle: Lif
   lifecycle.on_shutdown(timer.stop)
 
 
+def _wire(settings: Settings, container: Container, lifecycle: Lifecycle) -> Runtime:
+  _register_services(container, settings, lifecycle)
+  container.register_instance("lifecycle", lifecycle)
+  return Runtime(container=container, lifecycle=lifecycle, settings=settings)
+
+
+def build_runtime() -> Runtime:
+  """Wire services. No Qt, no HTTP - the headless entry point and tests call this."""
+  setup_logging()
+  return _wire(load_settings(), Container(), Lifecycle())
+
+
+def start_api(runtime: Runtime, *, blocking: bool = False) -> None:
+  """Serve the HTTP API on the shared container. Daemon thread, or block for headless."""
+  if not runtime.settings.api.enabled:
+    logger.info("HTTP API disabled")
+    return
+  try:
+    from maira.api.overlay import OverlayStore  # noqa: PLC0415
+    from maira.api.server import create_app, serve_api, start_api_thread  # noqa: PLC0415
+  except ImportError as exc:
+    # fastapi/uvicorn are an optional extra: the desktop app must still start without them.
+    logger.warning('HTTP API unavailable ({}). Install with: pip install -e ".[api]"', exc)
+    if blocking:
+      raise SystemExit(1) from exc
+    return
+
+  if runtime.container.try_resolve("overlay") is None:
+    runtime.container.register_instance("overlay", OverlayStore(data_dir() / "user_profile.json"))
+
+  # Headless has no QTimer, so the thread-backed scheduler runs due automations.
+  if blocking:
+    runtime.container.resolve("automation_scheduler").start()
+
+  app = create_app(runtime.container)
+  if blocking:
+    serve_api(app, runtime.settings, runtime.lifecycle)
+    return
+  start_api_thread(app, runtime.settings, runtime.lifecycle)
+
+
+def run_headless() -> None:
+  """Boot the container and serve the API without a window."""
+  runtime = build_runtime()
+  logger.info("Starting Ultron API (headless)")
+  if not runtime.settings.api.enabled:
+    logger.error("api.enabled is false - nothing to serve")
+    raise SystemExit(1)
+  start_api(runtime, blocking=True)
+
+
 def bootstrap(argv: list[str] | None = None) -> AppContext | None:
   """Build the app. Returns None when another instance is already running."""
   args = list(sys.argv[1:] if argv is None else argv)
@@ -534,11 +739,13 @@ def bootstrap(argv: list[str] | None = None) -> AppContext | None:
   lifecycle = Lifecycle()
   lifecycle.on_shutdown(guard.release)
 
-  _register_services(container, settings, lifecycle)
-  container.register_instance("lifecycle", lifecycle)
+  runtime = _wire(settings, container, lifecycle)
   container.register_instance("restart", lambda: restart_app(qt_app, guard))
   autostart = AutostartManager(settings.app_name)
   container.register_instance("autostart", autostart)
+
+  # The web UI talks to the same live services as this window.
+  start_api(runtime, blocking=False)
 
   window = MainWindow(container=container, skip_onboarding=True)
   tray = _setup_background(qt_app, container, settings, window, lifecycle)

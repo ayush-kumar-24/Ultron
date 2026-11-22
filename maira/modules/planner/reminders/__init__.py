@@ -90,6 +90,13 @@ class LinkedPlanner(Planner):
     self._cancel(task_id)
     self._inner.delete_task(task_id)
 
+  def resync(self, task_id: str) -> None:
+    """Re-derive the reminder for a task changed outside this planner (e.g. the web UI)."""
+    self._cancel(task_id)
+    task = self.get_task(task_id)
+    if task is not None:
+      self._schedule(task)
+
   def has_reminder(self, task: Task) -> bool:
     return any(task_id_of(job) == task.id for job in self._pending_jobs())
 

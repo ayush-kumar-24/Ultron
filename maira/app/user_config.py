@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,10 @@ def _dig(data: dict, path: str, default: Any = None) -> Any:
   return node
 
 
+# One writer at a time across threads (Qt window + web API) in this process.
+_WRITE_LOCK = threading.RLock()
+
+
 class UserConfig:
   def __init__(self, user_path: Path | None = None, default_path: Path | None = None) -> None:
     self._user_path = user_path or user_config_path()
@@ -69,6 +74,13 @@ class UserConfig:
 
   def set(self, path: str, value: Any) -> None:
     """Store an override and save. Setting the default value removes the override."""
+    with _WRITE_LOCK:
+      # Re-read first: the desktop window and the web UI each hold a UserConfig, and
+      # writing back a stale copy would silently undo the other one's change.
+      self._user = load_yaml(self._user_path)
+      self._set(path, value)
+
+  def _set(self, path: str, value: Any) -> None:
     parts = path.split(".")
     if value == _dig(self._defaults, path, _MISSING):
       self._remove(parts)
@@ -84,8 +96,10 @@ class UserConfig:
     self.save()
 
   def reset(self, path: str) -> None:
-    self._remove(path.split("."))
-    self.save()
+    with _WRITE_LOCK:
+      self._user = load_yaml(self._user_path)
+      self._remove(path.split("."))
+      self.save()
 
   def merged(self) -> dict:
     return deep_merge(self._defaults, self._user)

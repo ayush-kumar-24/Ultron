@@ -27,6 +27,12 @@ class MemoryCategory(str, Enum):
   NOTE = "note"
   IDEA = "idea"
   PROJECT = "project"
+  # Used by the web UI's memory categories. Plurals ("preferences", "projects",
+  # "conversations") are deliberately absent: they map onto the singular members above.
+  PERSONAL = "personal"
+  PEOPLE = "people"
+  WORK = "work"
+  LEARNED = "learned"
 
 
 class AutomationStatus(str, Enum):

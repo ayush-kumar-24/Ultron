@@ -1,5 +1,7 @@
 """Brain facade — primary entry point for chat and reasoning requests."""
 
+from __future__ import annotations
+
 import threading
 
 from loguru import logger
@@ -13,11 +15,13 @@ from maira.core.interfaces.memory import Memory
 from maira.core.interfaces.automation import Automation
 from maira.core.interfaces.desktop import DesktopController
 from maira.core.interfaces.planner import Planner
+from maira.core.interfaces.screen import Screen
 from maira.infrastructure.llm.ollama.client import OLLAMA_UNAVAILABLE_USER_MESSAGE
 from maira.infrastructure.persistence.sqlite.repositories import ConversationRepository
 from maira.modules.automation.chat import ReminderChat
 from maira.modules.automation.parser import parse_schedule_request
 from maira.modules.desktop_controller.intent import parse_desktop_request
+from maira.modules.vision.intent import parse_vision_request
 from maira.modules.brain.context import (
   ContextAssembler,
   MAIRA_IDENTITY_PROMPT,
@@ -71,6 +75,7 @@ class BrainService(Brain):
     skills: SkillService | None = None,
     agent: AgentService | None = None,
     context_window: int | None = None,
+    vision: Screen | None = None,
   ) -> None:
     self._llm = llm
     self._repo = repository
@@ -99,6 +104,7 @@ class BrainService(Brain):
       skills.set_notifier(self.announce)  # "skills installed" arrives later in chat
     # One message at a time: chat, voice and announcements share one session.
     self._turn_lock = threading.RLock()
+    self._vision = vision
     self._conversation = self._load_or_create_conversation()
 
   def _load_or_create_conversation(self) -> Conversation:
@@ -132,12 +138,25 @@ class BrainService(Brain):
       self._streamer.publish_token(reply)
       self._streamer.publish_complete(reply)
 
+  def send_in_conversation(
+    self,
+    conversation_id: str,
+    text: str,
+    *,
+    voice: bool = False,
+    max_tokens: int | None = None,
+  ) -> None:
+    """Switch to a conversation then stream a reply — one lock so sessions don't interleave."""
+    with self._turn_lock:
+      self._open_conversation(conversation_id)
+      self._send_message(text, voice=voice, max_tokens=max_tokens)
+
   def _send_message(
     self,
     text: str,
     *,
-    voice: bool,
-    max_tokens: int | None,
+    voice: bool = False,
+    max_tokens: int | None = None,
   ) -> None:
     cleaned = text.strip()
     if not cleaned:
@@ -252,6 +271,11 @@ class BrainService(Brain):
     if skill is not None:
       system_prompt = f"{skill.prompt}\n\n---\n\n{system_prompt}"
       self._bus.publish("skill.used", {"name": skill.skill.name, "explicit": skill.explicit})
+    # Screen understanding — capture once when the user points at the screen.
+    # Goes into the system prompt so the OCR dump never pollutes conversation history.
+    screen_block = self._screen_context(cleaned)
+    if screen_block:
+      system_prompt = system_prompt + "\n\n" + screen_block
 
     trace.mark("context_done")
 
@@ -297,7 +321,7 @@ class BrainService(Brain):
     with self._repo.transaction():
       self._repo.add_message(self._conversation.id, user_message)
       self._repo.add_message(self._conversation.id, assistant_message)
-      if is_first_turn and self._conversation.title == "New chat":
+      if is_first_turn and self._conversation.title in {"New chat", "New conversation"}:
         title = _title_from_text(cleaned)
         self._repo.update_title(self._conversation.id, title)
         refreshed = self._repo.get_conversation(self._conversation.id)
@@ -352,6 +376,8 @@ class BrainService(Brain):
       text = "\n" + text  # a blank line after the step list
     self._streamer.publish_token(text)
     self._finish_local(cleaned, "".join(progress) + text)
+    if outcome.kind != "approval":  # an approval is a pause, not a finished job
+      self._bus.publish("agent.ran", {"goal": cleaned, "ok": outcome.kind != "error", "message": outcome.text})
 
   def _try_skill_command(self, cleaned: str, *, voice: bool) -> bool:
     assert self._skills is not None
@@ -465,7 +491,7 @@ class BrainService(Brain):
     with self._repo.transaction():
       self._repo.add_message(self._conversation.id, user_message)
       self._repo.add_message(self._conversation.id, assistant_message)
-      if is_first_turn and self._conversation.title == "New chat":
+      if is_first_turn and self._conversation.title in {"New chat", "New conversation"}:
         title = _title_from_text(cleaned)
         self._repo.update_title(self._conversation.id, title)
         refreshed = self._repo.get_conversation(self._conversation.id)
@@ -480,6 +506,19 @@ class BrainService(Brain):
     self._bus.publish("automation.changed", {"reason": "created"})
     logger.info("Scheduled automation from chat: {}", parsed.title)
     return True
+
+  def _screen_context(self, cleaned: str) -> str:
+    """Look at the screen when asked, and return a prompt block describing it."""
+    if self._vision is None:
+      return ""
+    if not parse_vision_request(cleaned):
+      return ""
+    reading = self._vision.read_screen()
+    if not reading.ok:
+      logger.warning("Screen read failed: {}", reading.summary)
+      return f"[the user asked about the screen, but it could not be read: {reading.summary}]"
+    logger.info("Screen read for chat: {}", reading.summary)
+    return self._vision.as_context(reading)
 
   def _try_desktop_from_chat(self, cleaned: str) -> bool:
     assert self._desktop is not None
@@ -496,7 +535,7 @@ class BrainService(Brain):
       with self._repo.transaction():
         self._repo.add_message(self._conversation.id, user_message)
         self._repo.add_message(self._conversation.id, assistant_message)
-        if is_first_turn and self._conversation.title == "New chat":
+        if is_first_turn and self._conversation.title in {"New chat", "New conversation"}:
           title = _title_from_text(cleaned)
           self._repo.update_title(self._conversation.id, title)
           refreshed = self._repo.get_conversation(self._conversation.id)
@@ -521,7 +560,7 @@ class BrainService(Brain):
     with self._repo.transaction():
       self._repo.add_message(self._conversation.id, user_message)
       self._repo.add_message(self._conversation.id, assistant_message)
-      if is_first_turn and self._conversation.title == "New chat":
+      if is_first_turn and self._conversation.title in {"New chat", "New conversation"}:
         title = _title_from_text(cleaned)
         self._repo.update_title(self._conversation.id, title)
         refreshed = self._repo.get_conversation(self._conversation.id)
@@ -560,17 +599,23 @@ class BrainService(Brain):
     return [{"role": "system", "content": system_prompt}, *payload]
 
   def get_history(self) -> list[Message]:
-    return self._session.get_messages()
+    with self._turn_lock:
+      return self._session.get_messages()
 
   def list_conversations(self) -> list[Conversation]:
     return self._repo.list_conversations()
 
   def new_conversation(self) -> Conversation:
-    self._conversation = self._repo.create_conversation("New chat")
-    self._session.clear()
-    return self._conversation
+    with self._turn_lock:
+      self._conversation = self._repo.create_conversation("New chat")
+      self._session.clear()
+      return self._conversation
 
   def open_conversation(self, conversation_id: str) -> Conversation:
+    with self._turn_lock:
+      return self._open_conversation(conversation_id)
+
+  def _open_conversation(self, conversation_id: str) -> Conversation:
     conversation = self._repo.get_conversation(conversation_id)
     if conversation is None:
       raise ConversationNotFoundError(f"Conversation not found: {conversation_id}")
@@ -579,4 +624,5 @@ class BrainService(Brain):
     return conversation
 
   def get_active_conversation(self) -> Conversation:
-    return self._conversation
+    with self._turn_lock:
+      return self._conversation

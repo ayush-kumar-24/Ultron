@@ -75,3 +75,16 @@ def test_update_title_and_touch(repo: ConversationRepository) -> None:
   assert updated is not None
   assert updated.title == "My topic"
   assert updated.updated_at >= conversation.updated_at
+
+
+def test_pin_and_delete_conversation(repo: ConversationRepository) -> None:
+  conversation = repo.create_conversation("Alpha", project_id="p_1")
+  repo.add_message(conversation.id, Message(role=MessageRole.USER, content="hi"))
+  patched = repo.update_conversation(conversation.id, pinned=True)
+  assert patched is not None
+  assert patched.pinned is True
+  assert patched.project_id == "p_1"
+  assert repo.delete_conversation(conversation.id) is True
+  assert repo.get_conversation(conversation.id) is None
+  assert repo.get_messages(conversation.id) == []
+  assert repo.delete_conversation(conversation.id) is False

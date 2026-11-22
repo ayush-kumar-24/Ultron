@@ -21,6 +21,8 @@ class MemoryService(Memory):
   ) -> None:
     self._store = MemoryStore(repository)
     self._retrieval = MemoryRetrieval(repository, encoder=encoder, vector_store=vector_store)
+    # Told about every saved memory (chat, the background worker, or the web UI).
+    self.on_store = None
 
   def store(
     self,
@@ -28,9 +30,26 @@ class MemoryService(Memory):
     category: MemoryCategory,
     title: str,
     body: str,
+    source: str = "",
+    confidence: float = 0.9,
+    importance: str = "medium",
+    pinned: bool = False,
   ) -> MemoryEntry:
-    entry = self._store.store(category=category, title=title, body=body)
+    entry = self._store.store(
+      category=category,
+      title=title,
+      body=body,
+      source=source,
+      confidence=confidence,
+      importance=importance,
+      pinned=pinned,
+    )
     self._retrieval.index(entry)
+    if self.on_store is not None:
+      try:
+        self.on_store(entry)
+      except Exception:  # noqa: BLE001 - a listener must never block a save
+        pass
     return entry
 
   def get(self, memory_id: str) -> MemoryEntry | None:
@@ -74,6 +93,12 @@ class MemoryService(Memory):
     body: str,
   ) -> MemoryEntry | None:
     entry = self._store.update(memory_id, category=category, title=title, body=body)
+    if entry is not None:
+      self._retrieval.index(entry)
+    return entry
+
+  def patch(self, memory_id: str, **fields) -> MemoryEntry | None:
+    entry = self._store.patch(memory_id, **fields)
     if entry is not None:
       self._retrieval.index(entry)
     return entry

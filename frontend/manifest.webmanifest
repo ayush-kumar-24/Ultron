@@ -1,0 +1,14 @@
+{
+  "name": "ULTRON",
+  "short_name": "Ultron",
+  "description": "A personal AI operating layer.",
+  "start_url": "./index.html#/overview",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#05070A",
+  "theme_color": "#05070A",
+  "orientation": "any",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

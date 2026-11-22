@@ -150,3 +150,20 @@ agent:
   folders: []
   # Gmail address to send from. The app password is set in Settings → Agent (never stored here).
   email_address: ""
+
+# On-demand screen understanding. Ultron looks only when asked - never watches.
+vision:
+  enabled: true
+  ocr_lang: en
+  max_text_chars: 4000
+
+# HTTP API for the web frontend. Runs in-process (daemon thread) with the desktop app.
+api:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8000
+  cors_origins:
+    - "http://127.0.0.1:5173"
+    - "http://localhost:5173"
+    - "http://127.0.0.1:8000"
+    - "http://localhost:8000"

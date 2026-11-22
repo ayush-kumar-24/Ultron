@@ -1,5 +1,7 @@
 """Typed application settings."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 from maira.infrastructure.config.yaml_loader import deep_merge, load_yaml
@@ -129,6 +131,21 @@ class AgentSettings:
 
 
 @dataclass(frozen=True)
+class VisionSettings:
+  enabled: bool
+  ocr_lang: str
+  max_text_chars: int
+
+
+@dataclass(frozen=True)
+class ApiSettings:
+  enabled: bool
+  host: str
+  port: int
+  cors_origins: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Settings:
   app: AppSettings
   paths: PathSettings
@@ -141,6 +158,8 @@ class Settings:
   notifications: NotificationSettings
   briefing: BriefingSettings
   tasks: TaskSettings
+  vision: VisionSettings
+  api: ApiSettings
   skills: SkillSettings = field(
     default_factory=lambda: SkillSettings(True, True, 6000, 8192, 120)
   )
@@ -174,6 +193,8 @@ def load_settings() -> Settings:
   folders_raw = agent_raw.get("folders") or []
   if isinstance(folders_raw, str):
     folders_raw = [f for f in folders_raw.split(";")]
+  vision_raw = merged.get("vision", {})
+  api_raw = merged.get("api", {})
   stt_raw = voice_raw.get("stt", {}) if isinstance(voice_raw.get("stt"), dict) else {}
   tts_raw = voice_raw.get("tts", {}) if isinstance(voice_raw.get("tts"), dict) else {}
   behavior_raw = voice_raw.get("behavior", {}) if isinstance(voice_raw.get("behavior"), dict) else {}
@@ -298,5 +319,27 @@ def load_settings() -> Settings:
       max_steps=max(2, int(agent_raw.get("max_steps", 10))),
       folders=tuple(str(f).strip() for f in folders_raw if str(f).strip()),
       email_address=str(agent_raw.get("email_address") or ""),
+    ),
+    vision=VisionSettings(
+      enabled=bool(vision_raw.get("enabled", True)),
+      ocr_lang=str(vision_raw.get("ocr_lang", "en")),
+      max_text_chars=int(vision_raw.get("max_text_chars", 4000)),
+    ),
+    api=ApiSettings(
+      enabled=bool(api_raw.get("enabled", True)),
+      host=str(api_raw.get("host", "127.0.0.1")),
+      port=int(api_raw.get("port", 8000)),
+      cors_origins=tuple(
+        str(origin)
+        for origin in api_raw.get(
+          "cors_origins",
+          [
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+            "http://127.0.0.1:8000",
+            "http://localhost:8000",
+          ],
+        )
+      ),
     ),
   )

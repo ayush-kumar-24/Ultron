@@ -28,6 +28,10 @@ class Container:
     self._singletons[key] = instance
     return instance
 
+  def is_resolved(self, key: str) -> bool:
+    """True once a service has been built - lets callers ask without triggering a heavy factory."""
+    return key in self._singletons
+
   def try_resolve(self, key: str) -> Any | None:
     try:
       return self.resolve(key)

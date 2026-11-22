@@ -155,6 +155,33 @@ class VoiceService(Voice):
       self._publish_error("No speech detected. Try speaking again.")
     self._set_status(VoiceStatus.IDLE)
 
+  def listen_once(self, *, should_stop=None) -> str:
+    """Record one utterance on this machine's microphone and return what was said.
+
+    No brain, no speech - the caller decides what to do with the text.
+    """
+    with self._lock:
+      if self._status != VoiceStatus.IDLE or self._conversation_active:
+        raise RuntimeError("Ultron is already listening or speaking.")
+      self._set_status(VoiceStatus.LISTENING)
+    try:
+      audio = self._audio.capture_utterance(
+        silence_seconds=max(0.6, self._silence_seconds), should_stop=should_stop
+      )
+      self._set_status(VoiceStatus.TRANSCRIBING)
+      if audio is None or len(audio) == 0:
+        return ""
+      return self._stt.transcribe(audio).strip()
+    finally:
+      self._set_status(VoiceStatus.IDLE)
+
+  def can_listen(self) -> tuple[bool, str]:
+    if not self._audio.is_available():
+      return False, "No microphone is available on this machine."
+    if not self._stt.is_available():
+      return False, "Speech recognition is not installed."
+    return True, "ready"
+
   def cancel_dictation(self) -> None:
     """Stop recording without transcribing."""
     with self._lock:
